@@ -56,6 +56,80 @@ as defined (headings), use:
 grep -rHE '^#+ .*CSCAN-' --include='*.md' --exclude='README.md' .
 ```
 
+## Example findings
+
+A few of the highest-severity findings, to show what the reports contain.
+Each links to the full finding and to the summary it came from.
+
+Upstream status was checked against `elixir-lang/elixir` `main` at
+[`168635a97`](https://github.com/elixir-lang/elixir/commit/168635a97) (the scan
+was run on tree `3389f8405`). Findings are marked **Fixed upstream** when a
+later commit resolves them; the others were still present at that commit.
+
+### Bugs
+
+The only **Critical** finding across all bug summaries is #1; the rest are
+verified **High** findings.
+
+1. **Type checker drops bitstring size-expression calls, so valid macros fail
+   to compile** (**Critical**, verified) — [`CSCAN-traverse-bitstring-specifier-calls-dropped`](./elixir-bugs-20260827T211546Z/lib-module-types-traverse.ex.md#cscan-traverse-bitstring-specifier-calls-dropped).\
+   `of_expr` never traverses the specifier side of a bitstring segment, so a
+   local function used in `<<x::size(helper())>>` looks never-called and
+   compilation aborts with `undefined function`. It affects every macro
+   compilation. Summary: [elixir-bugs](./elixir-bugs-20260827T211546Z/README.md).
+2. **`Inspect` for `HashDict`/`HashSet` crashes on every non-empty value**
+   (**High**) — [`CSCAN-cluster-inspect-list-two-tuple-return`](./elixir-bugs-20260827T211546Z/CLUSTER_lib-2.md#cscan-cluster-inspect-list-two-tuple-return).\
+   A `{doc, opts}` two-tuple is spliced into `concat/1`, which rejects it. It
+   is only visible when the three files involved are read together. The
+   atom fix in #3 does not address this: `container_doc_with_opts` still
+   returns a two-tuple at `168635a97`. Summary:
+   [elixir-bugs](./elixir-bugs-20260827T211546Z/README.md).
+3. **`HashDict` protocol implementations use the wrong module atom** (**High**,
+   verified, **Fixed upstream** in [`13299af2b`](https://github.com/elixir-lang/elixir/commit/13299af2b91a6aff7e430f25849f586c02b3231f),
+   2026-10-13) — [`CSCAN-hash_dict-protocol-module-atom-missing-elixir-prefix`](./elixir-bugs-20260827T211546Z/lib-hash_dict.ex.md#cscan-hash_dict-protocol-module-atom-missing-elixir-prefix).\
+   The implementations build `:HashDict` instead of `:"Elixir.HashDict"`, so
+   every `Enumerable`, `Collectable` and `Inspect` operation raises
+   `UndefinedFunctionError`. The same commit fixes `HashSet`. Summary: [elixir-bugs](./elixir-bugs-20260827T211546Z/README.md).
+4. **`Registry.lock/3` times out after 5 s instead of waiting** (**High**,
+   verified, reproduced) — [`CSCAN-registry-lock-call-timeout`](./elixir-bugs-20260827T211546Z/lib-registry.ex.md#cscan-registry-lock-call-timeout).\
+   It uses the default `GenServer.call` timeout rather than `:infinity`, so a
+   contender waiting on a long critical section crashes with a `:timeout` exit.
+   Summary: [elixir-bugs](./elixir-bugs-20260827T211546Z/README.md).
+5. **Stopping `:logger` leaks the Elixir default handler** (**High**,
+   verified) — [`CSCAN-app-remove-handler-list-wrapped`](./logger-bugs-20260828T022810Z/lib-logger-app.ex.md#cscan-app-remove-handler-list-wrapped).\
+   The removal action is returned wrapped in an extra list and silently
+   dropped on stop, so the handler is never removed and the original Erlang
+   handler is never restored. Summary: [logger-bugs](./logger-bugs-20260828T022810Z/README.md).
+
+### Security
+
+Only clear security concerns are listed: attacker-controlled input reaching a
+code-execution or file-system sink. Denial-of-service and hardening findings
+are left out. All of these are **High** and verified.
+
+1. **Lockfile key injection gives code execution from a transitive rebar
+   dependency** — [`CSCAN-cluster-lockfile-key-injection-from-dep-name`](./mix-security-20260827T090532Z/CLUSTER_lib-mix-dep.md#cscan-cluster-lockfile-key-injection-from-dep-name).\
+   A crafted dependency name is written unescaped into `mix.lock`, which Mix
+   later runs through `Code.eval_quoted`. The poisoned lockfile propagates to
+   every collaborator. Summary: [mix-security](./mix-security-20260827T090532Z/README.md).
+2. **Dependency app-name path traversal deletes and plants files at
+   `mix deps.get`** — [`CSCAN-loader-dep-app-name-traversal`](./mix-security-20260827T090532Z/lib-mix-dep-loader.ex.md#cscan-loader-dep-app-name-traversal).\
+   A dependency named `'../../X'` makes the checkout path escape `deps/`, and
+   `File.rm_rf!` plus `git init` run there before any code is compiled.
+   Summary: [mix-security](./mix-security-20260827T090532Z/README.md).
+3. **`mix archive.install` zip-slip** — [`CSCAN-archive.install-zipslip-lh-cd-differential`](./mix-security-20260827T090532Z/lib-mix-tasks-archive.install.ex.md#cscan-archiveinstall-zipslip-lh-cd-differential).\
+   Path validation checks central-directory names while extraction uses
+   local-file-header names, so a crafted `.ez` can write files outside the
+   extraction directory. Summary: [mix-security](./mix-security-20260827T090532Z/README.md).
+4. **IEx editor command injection** — [`CSCAN-introspection-editor-os-cmd-injection`](./iex-security-20260827T074201Z/lib-iex-introspection.ex.md#cscan-introspection-editor-os-cmd-injection).\
+   `open(SomeModule)` builds an editor command with `inspect/1` quoting, which
+   is not shell quoting, and runs it with `:os.cmd/1`. A source file named with
+   backticks or `$()` executes commands. Summary: [iex-security](./iex-security-20260827T074201Z/README.md).
+5. **`Record.extract/2` evaluates untrusted header defaults** — [`CSCAN-extractor-record-default-eval-rce`](./elixir-security-20260827T141433Z/lib-record-extractor.ex.md#cscan-extractor-record-default-eval-rce).\
+   Default-value expressions in an Erlang `.hrl` are run through
+   `:erl_eval.expr` unrestricted, so a dependency's header can run shell
+   commands on the build machine. Summary: [elixir-security](./elixir-security-20260827T141433Z/README.md).
+
 ## Reports
 
 | Area | Bug reports | Security reports |

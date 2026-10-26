@@ -16,7 +16,7 @@ No findings.
 
 ### Ruled out
 
-- **Config file evaluation is arbitrary code execution (`load_compile`/`load_runtime`, lines 59–71).**
+- **Config file evaluation is arbitrary code execution (`load_compile`/`load_runtime`, lines 59–71).**\
   `Config.Reader.read_imports!`/`read!` evaluate the config file as Elixir. **Reproduced** on Elixir 1.21.0-dev / OTP 29 (the toolchain the source tree targets): a `config.exs` containing `File.write!("/tmp/pwned_by_config", ...)` executed at read time — `side-effect file exists?: true`, `config: [foo: [bar: 1]]`. This is documented, intended compile-time-config behavior. I read every in-repo caller and confirmed each supplies an **operator-controlled** path:
   - `run/1` line 38 — the `mix loadconfig <file>` argv.
   - `load_default` line 46 — the project's own `Mix.Project.config()[:config_path]` from `mix.exs`.
@@ -24,28 +24,28 @@ No findings.
   - `archive.install.ex:155` and `escript.install.ex:135` — `Mix.Task.run("loadconfig")` with **no file arg**, so it hits `load_default` → project config_path, not any archive/escript content. **Verified by read.**
   - `local/installer.ex:106` — `preserve_config(fn -> module.build(...) end)`; `preserve_config` reads the already-loaded project config via `read_compile()` and does not itself read any new file. **Verified by read.**
   - `run.ex:184` — the deprecated `--config` flag value (operator argv).
-  - `cli.ex:264` — the user's `~/.mix/config.exs` (operator home).
-  Mix does not load a *dependency's* config files; no dependency/archive/network/git ref reaches this sink. A malicious `mix.exs` already has RCE by design (out of scope per folder threat model).
+  - `cli.ex:264` — the user's `~/.mix/config.exs` (operator home).\
+  Mix does not load a *dependency's* config files; no dependency/archive/network/git ref reaches this sink. A malicious `mix.exs` already has RCE by design (out of scope per folder threat model).\
   Axes examined: caller-supplied path provenance (all 7 in-repo call sites read); eval side-effect (executed). | Not examined: none.
 
-- **`run/1` missing catch-all clause (lines 36–39).**
-  `mix loadconfig a b c` (2+ args) matches neither `[]` nor `[file]`, raising `CaseClauseError`. **Reproduced** on Elixir 1.21.0-dev / OTP 29: `CRASH: CaseClauseError`. Args are operator-typed on the command line; benign usage error, not attacker-reachable.
+- **`run/1` missing catch-all clause (lines 36–39).**\
+  `mix loadconfig a b c` (2+ args) matches neither `[]` nor `[file]`, raising `CaseClauseError`. **Reproduced** on Elixir 1.21.0-dev / OTP 29: `CRASH: CaseClauseError`. Args are operator-typed on the command line; benign usage error, not attacker-reachable.\
   Axes examined: arg-list arity 0/1/≥2 (executed). | Not examined: none.
 
-- **TOCTOU on `config_path` (line 45) and `~/.mix/config.exs` (`cli.ex:263`).**
-  `File.regular?(config_path)` is checked, then `load_compile` re-reads the path. Any racer able to swap the file is already inside the operator's trust domain (their own project dir / home dir); no in-scope attacker controls these paths.
+- **TOCTOU on `config_path` (line 45) and `~/.mix/config.exs` (`cli.ex:263`).**\
+  `File.regular?(config_path)` is checked, then `load_compile` re-reads the path. Any racer able to swap the file is already inside the operator's trust domain (their own project dir / home dir); no in-scope attacker controls these paths.\
   Axes examined: path provenance (project dir / operator home). | Not examined: cross-user race on a world-writable config dir — self-inflicted misconfiguration only, no in-scope remote/dependency attacker reaches the path, so no executable trigger exists.
 
-- **Global-state writes: `Application.put_all_env(config, persistent: true)` (line 99), `Mix.State.write_cache` (line 62), `Mix.ProjectStack.loaded_config` (line 61).**
-  These persist config into VM-global application env, but the values come from the operator's own config file (established above), not an external boundary.
+- **Global-state writes: `Application.put_all_env(config, persistent: true)` (line 99), `Mix.State.write_cache` (line 62), `Mix.ProjectStack.loaded_config` (line 61).**\
+  These persist config into VM-global application env, but the values come from the operator's own config file (established above), not an external boundary.\
   Axes examined: value provenance (operator config, per verified callers). | Not examined: none.
 
-- **`persist_apps` persists reserved apps before warning (lines 98–134).**
-  `:kernel`/`:stdlib` config is written by `put_all_env` (line 99) *before* the "Cannot configure base applications" check (line 102), which is only an advisory `Mix.shell().error`, not a security gate. Config content is operator-controlled, so no privilege boundary is crossed.
+- **`persist_apps` persists reserved apps before warning (lines 98–134).**\
+  `:kernel`/`:stdlib` config is written by `put_all_env` (line 99) *before* the "Cannot configure base applications" check (line 102), which is only an advisory `Mix.shell().error`, not a security gate. Config content is operator-controlled, so no privilege boundary is crossed.\
   Axes examined: ordering (put_all_env precedes the filter); value provenance (operator config). | Not examined: none.
 
-- **Error-string interpolation (lines 108, 131): `inspect(reserved_apps)` and `Path.relative_to_cwd(file)`.**
-  Both flow only into a `Mix.shell().error` message rendered to the operator's terminal; no downstream interpreter (shell, query, EEx, regex) consumes them.
+- **Error-string interpolation (lines 108, 131): `inspect(reserved_apps)` and `Path.relative_to_cwd(file)`.**\
+  Both flow only into a `Mix.shell().error` message rendered to the operator's terminal; no downstream interpreter (shell, query, EEx, regex) consumes them.\
   Axes examined: sink type (terminal `error/1` only, no secondary interpreter). | Not examined: none.
 
 - **No atom-from-bytes, command execution with external argv, archive extraction, `binary_to_term`, crypto, or outbound network** exists in this file. (Confirmed by read of the full 138-line file.)

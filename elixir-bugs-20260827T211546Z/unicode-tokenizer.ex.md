@@ -24,9 +24,9 @@ The public `dir/1` bidi-classifier misclassifies non-ASCII decimal-digit identif
 - **Evidence** — `verified`.
   - `String.Tokenizer.dir(0x0669)` ⇒ `:ltr`; `dir(?0)` ⇒ `:weak_number`; `dir(0x06F9)` ⇒ `:neutral`.
   - Reachable identifier: `String.Tokenizer.tokenize([0x0628,0x0660,0x0669,0x0627])` ⇒ `{:identifier, [1576,1632,1641,1575], [], 4, false, []}`.
-  - Divergent public skeleton:
-    `String.Tokenizer.Security.bidi_skeleton([0x0627, 0x0669, 0x0628])` ⇒ `[~c"l", "\x{669}", "\x{628}"]` (unreversed), vs
-    `String.Tokenizer.Security.bidi_skeleton([0x0627, ?0, 0x0628])` ⇒ `["\x{628}", "0", ~c"l"]` (correctly reversed).
+  - Divergent public skeleton:\
+    `String.Tokenizer.Security.bidi_skeleton([0x0627, 0x0669, 0x0628])` ⇒ `[~c"l", "\x{669}", "\x{628}"]` (unreversed), vs\
+    `String.Tokenizer.Security.bidi_skeleton([0x0627, ?0, 0x0628])` ⇒ `["\x{628}", "0", ~c"l"]` (correctly reversed).\
     `unbidify([0x0627, 0x0669, 0x0628])` ⇒ `[1575,1641,1576]` (run not reversed) vs `unbidify([0x0627, ?0, 0x0628])` ⇒ `[1576,48,1575]`.
 - **Suggested fix** — Classify all bidi weak-number identifier characters as `:weak_number`, not just ASCII. Simplest: in the `dir/1` generation, add `AN` (and `EN`) code points to a weak-number set (mirroring how `48..57` is special-cased) rather than letting them fall into the neutral/`:ltr` buckets — e.g. extend line 66's handling so bidi `AN`/`EN` identifier code points emit `:weak_number` clauses, and drop the ASCII-only assumption in the line 348–349 comment.
 

@@ -31,95 +31,95 @@ The following spots were examined closely because they *looked* dangerous and tu
 
 ### Ruled out
 
-**Operator / precedence typo**
-Reason: Every `,`/`;`/`orelse`/`andalso` in guards was read with explicit parentheses; the `?defs`/`?lexical` macros use `;` correctly in guard position, and `shallow_valid_elem/1` line 601 partitions as `is_atom ∧ is_list ∧ (is_atom ∨ is_list)` matching intent.
-Axes examined: macro-expanded guard bodies, `==` vs `=:=` on atoms (line 98,110,242), mixed `,`/`orelse` (601) | Not examined: none.
+**Operator / precedence typo**\
+Reason: Every `,`/`;`/`orelse`/`andalso` in guards was read with explicit parentheses; the `?defs`/`?lexical` macros use `;` correctly in guard position, and `shallow_valid_elem/1` line 601 partitions as `is_atom ∧ is_list ∧ (is_atom ∨ is_list)` matching intent.\
+Axes examined: macro-expanded guard bodies, `==` vs `=:=` on atoms (line 98,110,242), mixed `,`/`orelse` (601) | Not examined: none.\
 Basis: verified.
 
-**Missing clause / catch-all**
-Reason: `dot/4` (548,558), `do_escape` (248), `do_quote` (441) all have terminal catch-all clauses; `try…of…catch _:_` at 228 is scoped to the reverse call only (verified above).
-Axes examined: 3-tuples with non-atom head, improper lists, empty tuple in 413 guard, nil third element | Not examined: none.
+**Missing clause / catch-all**\
+Reason: `dot/4` (548,558), `do_escape` (248), `do_quote` (441) all have terminal catch-all clauses; `try…of…catch _:_` at 228 is scoped to the reverse call only (verified above).\
+Axes examined: 3-tuples with non-atom head, improper lists, empty tuple in 413 guard, nil third element | Not examined: none.\
 Basis: verified.
 
-**Wrong atom / wrong symbol**
-Reason: Record field names, meta keys (`line`,`keep`,`counter`,`context`,`imports`,`ambiguous_op`,`stop_generated`,`column`,`generated`,`no_parens`,`delimiter`) and BIF names (`erlang:fun_info`, `code:ensure_loaded`, `function_exported`) all read consistently against their uses.
-Axes examined: meta-key names across keystore/keydelete/keyfind, `__escape__`/`__struct__`/`__aliases__` atoms | Not examined: none.
+**Wrong atom / wrong symbol**\
+Reason: Record field names, meta keys (`line`,`keep`,`counter`,`context`,`imports`,`ambiguous_op`,`stop_generated`,`column`,`generated`,`no_parens`,`delimiter`) and BIF names (`erlang:fun_info`, `code:ensure_loaded`, `function_exported`) all read consistently against their uses.\
+Axes examined: meta-key names across keystore/keydelete/keyfind, `__escape__`/`__struct__`/`__aliases__` atoms | Not examined: none.\
 Basis: verified.
 
-**State / accumulator threading error**
-Reason: `build/7` threads `Acc0..Acc3` monotonically; `do_tuple_linify/6` threads `NewGen`/`NewMeta` correctly; `do_quote_splice/4` threads `Buffer`/`Acc` (traced above).
-Axes examined: Acc order in build, Gen flag flip on stop_generated, buffer/acc in splice | Not examined: none.
+**State / accumulator threading error**\
+Reason: `build/7` threads `Acc0..Acc3` monotonically; `do_tuple_linify/6` threads `NewGen`/`NewMeta` correctly; `do_quote_splice/4` threads `Buffer`/`Acc` (traced above).\
+Axes examined: Acc order in build, Gen flag flip on stop_generated, buffer/acc in splice | Not examined: none.\
 Basis: verified.
 
-**Off-by-one / wrong arithmetic**
-Reason: The only arithmetic is `QuoteLevel ± 1` in `has_unquotes` (symmetric increment on quote / decrement on unquote) and bitstring `bit_size rem 8` split, which reconstructs `<<Bits:Size, Bytes/binary>>` losslessly.
-Axes examined: quote-level nesting depth 0/1/2, bitstring sizes 0/partial/byte-aligned | Not examined: none.
+**Off-by-one / wrong arithmetic**\
+Reason: The only arithmetic is `QuoteLevel ± 1` in `has_unquotes` (symmetric increment on quote / decrement on unquote) and bitstring `bit_size rem 8` split, which reconstructs `<<Bits:Size, Bytes/binary>>` losslessly.\
+Axes examined: quote-level nesting depth 0/1/2, bitstring sizes 0/partial/byte-aligned | Not examined: none.\
 Basis: verified.
 
-**Contract violation**
-Reason: `build/7` returns the documented `{Q, VContext, Acc}`; `escape/3` reraises with pruned stacktrace preserving Kind/Reason; callbacks return AST or raise `ArgumentError` as documented.
-Axes examined: build tuple arity, escape reraise shape, validate_runtime error shape | Not examined: none.
+**Contract violation**\
+Reason: `build/7` returns the documented `{Q, VContext, Acc}`; `escape/3` reraises with pruned stacktrace preserving Kind/Reason; callbacks return AST or raise `ArgumentError` as documented.\
+Axes examined: build tuple arity, escape reraise shape, validate_runtime error shape | Not examined: none.\
 Basis: verified.
 
-**Crash on stray / unexpected input**
-Reason: `escape/3` wraps `do_quote` in try/catch; unescapable terms route through `bad_escape/1 → argument_error`; `do_quote` terminal clause (441) returns `Other` unchanged.
-Axes examined: reference/port/anonymous-fun escape (bad_escape), improper list, bitstring, struct-without-module | Not examined: none.
+**Crash on stray / unexpected input**\
+Reason: `escape/3` wraps `do_quote` in try/catch; unescapable terms route through `bad_escape/1 → argument_error`; `do_quote` terminal clause (441) returns `Other` unchanged.\
+Axes examined: reference/port/anonymous-fun escape (bad_escape), improper list, bitstring, struct-without-module | Not examined: none.\
 Basis: verified.
 
-**Resource leak on error path**
-Reason: The module allocates no files, ETS, processes, monitors, or counters; it is pure AST transformation.
-Axes examined: whole-file scan for ets/open/spawn/monitor | Not examined: none.
+**Resource leak on error path**\
+Reason: The module allocates no files, ETS, processes, monitors, or counters; it is pure AST transformation.\
+Axes examined: whole-file scan for ets/open/spawn/monitor | Not examined: none.\
 Basis: verified.
 
-**Silent corruption**
-Reason: List/splice ordering and map escaping (`lists:sort(maps:to_list)`) preserve semantics; `has_unquotes` treating nested-quote `bind_quoted`/`unquote:false` opts as disabling is intentional and does not affect actual expansion (unquotes in opts are still processed by `do_quote/2` line 339), only the `has_unquotes` pre-check gating a pattern-only error (`elixir_expand.erl:269`).
-Axes examined: nested 2-arg quote with unquote in opts, map key ordering, splice mid-list | Not examined: none.
+**Silent corruption**\
+Reason: List/splice ordering and map escaping (`lists:sort(maps:to_list)`) preserve semantics; `has_unquotes` treating nested-quote `bind_quoted`/`unquote:false` opts as disabling is intentional and does not affect actual expansion (unquotes in opts are still processed by `do_quote/2` line 339), only the `has_unquotes` pre-check gating a pattern-only error (`elixir_expand.erl:269`).\
+Axes examined: nested 2-arg quote with unquote in opts, map key ordering, splice mid-list | Not examined: none.\
 Basis: verified.
 
-**Infinite loop / hang**
-Reason: All recursion structurally decreases (list tails, tuple decomposition, quote-level counter with a base); no `receive`, no unbounded retry.
-Axes examined: recursive descent on nested lists/tuples/quotes | Not examined: none.
+**Infinite loop / hang**\
+Reason: All recursion structurally decreases (list tails, tuple decomposition, quote-level counter with a base); no `receive`, no unbounded retry.\
+Axes examined: recursive descent on nested lists/tuples/quotes | Not examined: none.\
 Basis: verified.
 
-**Quadratic-where-linear**
-Reason: `do_quote_splice` prepends to `Buffer` then a single concat; `list/2`/`tail_list/3` do one `++` at runtime per splice site (unavoidable and non-nested).
-Axes examined: buffer accumulation, per-splice concat | Not examined: none.
+**Quadratic-where-linear**\
+Reason: `do_quote_splice` prepends to `Buffer` then a single concat; `list/2`/`tail_list/3` do one `++` at runtime per splice site (unavoidable and non-nested).\
+Axes examined: buffer accumulation, per-splice concat | Not examined: none.\
 Basis: verified.
 
-**Repeated work**
-Reason: No compiled patterns/regex/BEAM scans; `code:ensure_loaded` is called once per struct-map escape, which is inherent.
-Axes examined: per-call recompilation candidates | Not examined: none.
+**Repeated work**\
+Reason: No compiled patterns/regex/BEAM scans; `code:ensure_loaded` is called once per struct-map escape, which is inherent.\
+Axes examined: per-call recompilation candidates | Not examined: none.\
 Basis: verified.
 
-**Dead / unreachable code**
-Reason: `meta/2`'s second clause (`do_quote(Meta,Q)` for non-quote op) is effectively unreachable because alias/import clauses requiring hygiene maps never match under escape ops, but it is a harmless fallback, not a bug; `tail_list/3` clause 2 is live for improper tails.
-Axes examined: meta/2 non-quote reachability, tail_list clause coverage | Not examined: none.
+**Dead / unreachable code**\
+Reason: `meta/2`'s second clause (`do_quote(Meta,Q)` for non-quote op) is effectively unreachable because alias/import clauses requiring hygiene maps never match under escape ops, but it is a harmless fallback, not a bug; `tail_list/3` clause 2 is live for improper tails.\
+Axes examined: meta/2 non-quote reachability, tail_list clause coverage | Not examined: none.\
 Basis: verified.
 
-**Documented behaviour mismatch**
-Reason: `escape/3` doc ("lines kept, hygiene disabled") matches record `line=true`, `aliases_hygiene=nil`/`imports_hygiene=nil`; `linify/3` `line 0 → identity` matches doc.
-Axes examined: escape record vs docstring, linify 0-line short-circuit | Not examined: none.
+**Documented behaviour mismatch**\
+Reason: `escape/3` doc ("lines kept, hygiene disabled") matches record `line=true`, `aliases_hygiene=nil`/`imports_hygiene=nil`; `linify/3` `line 0 → identity` matches doc.\
+Axes examined: escape record vs docstring, linify 0-line short-circuit | Not examined: none.\
 Basis: verified.
 
-**Race condition / shared mutable state**
-Reason: Pure functional module, no shared/process state.
-Axes examined: whole-file scan for ets/process dict/system_flag | Not examined: none.
+**Race condition / shared mutable state**\
+Reason: Pure functional module, no shared/process state.\
+Axes examined: whole-file scan for ets/process dict/system_flag | Not examined: none.\
 Basis: verified.
 
-**Wrong scope / order of operations**
-Reason: `annotate/2` deletes `counter` before `keystore(context)` where required (677); struct-op validation precedes `__escape__` invocation.
-Axes examined: counter-delete vs context-store order, validate-before-call | Not examined: none.
+**Wrong scope / order of operations**\
+Reason: `annotate/2` deletes `counter` before `keystore(context)` where required (677); struct-op validation precedes `__escape__` invocation.\
+Axes examined: counter-delete vs context-store order, validate-before-call | Not examined: none.\
 Basis: verified.
 
-**Encoding / unicode mishandling**
-Reason: No byte/codepoint handling here; binaries built via `Elixir.Kernel:inspect` produce already-encoded messages; `atom_to_list`/`atom_to_binary` used only on internal atoms.
-Axes examined: message-binary construction, atom_to_list on "Elixir." prefix | Not examined: none.
+**Encoding / unicode mishandling**\
+Reason: No byte/codepoint handling here; binaries built via `Elixir.Kernel:inspect` produce already-encoded messages; `atom_to_list`/`atom_to_binary` used only on internal atoms.\
+Axes examined: message-binary construction, atom_to_list on "Elixir." prefix | Not examined: none.\
 Basis: verified.
 
-**Unclassified**
-Reason: No novel/composite bug shape surfaced beyond the classes above.
-Axes examined: struct custom-escape flow, quote-callback runtime contracts | Not examined: runtime execution of generated modules (reasoned from codegen only).
-Basis: asserted.
+**Unclassified**\
+Reason: No novel/composite bug shape surfaced beyond the classes above.\
+Axes examined: struct custom-escape flow, quote-callback runtime contracts | Not examined: runtime execution of generated modules (reasoned from codegen only).\
+Basis: asserted.\
 Depends on: `elixir_expand.erl` codegen (`do_runtime_list`/`do_quote_splice` output shapes) and the runtime evaluator invoking `tail_list/3`,`list/2` with compiler-produced values — assumed to match the shapes constructed in this file.
 
 ### Did I verify this?

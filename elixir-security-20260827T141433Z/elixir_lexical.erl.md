@@ -27,41 +27,41 @@ No findings
 
 ### Ruled out
 
-**`io_lib:format/2` in `format_error/1` (lines 116–128) — Template / format-string injection**
-Reason: all three format strings are compile-time constants with directive counts that exactly match their argument lists; the `Message` variable in the `unused_require` clause is chosen from three constant literals (never data), and interpolated values (`elixir_aliases:inspect(Module)`, `Function`, `Arity`) land in `~ts`/`~w` as *data*, not as format specifiers.
-Axes examined: format-directive/arg-arity match, runtime-selected format string, `~ts` with atom argument, `~ts` with non-string term | Not examined: none.
+**`io_lib:format/2` in `format_error/1` (lines 116–128) — Template / format-string injection**\
+Reason: all three format strings are compile-time constants with directive counts that exactly match their argument lists; the `Message` variable in the `unused_require` clause is chosen from three constant literals (never data), and interpolated values (`elixir_aliases:inspect(Module)`, `Function`, `Arity`) land in `~ts`/`~w` as *data*, not as format specifiers.\
+Axes examined: format-directive/arg-arity match, runtime-selected format string, `~ts` with atom argument, `~ts` with non-string term | Not examined: none.\
 Basis: verified.
 
-**`with_file/3` `File` parameter (lines 82–90) — Path handling / file operations**
-Reason: `File` (attacker-influenceable via a `@file` attribute in source) is only passed to `?tracker:set_file/2` and merged into the env as `E#{file := File}` — both diagnostic labels; no `file:`/`filelib:`/`open_port` call consumes it in this file, so path-traversal axes have no sink to disagree at.
-Axes examined: presence of any filesystem sink for `File` in this file (none), caller-provided shape (`elixir_def.erl:226-239` yields an absname binary) | Not examined: none (path normalization/traversal/symlink/NUL axes are inapplicable absent a filesystem op here).
-Basis: verified.
+**`with_file/3` `File` parameter (lines 82–90) — Path handling / file operations**\
+Reason: `File` (attacker-influenceable via a `@file` attribute in source) is only passed to `?tracker:set_file/2` and merged into the env as `E#{file := File}` — both diagnostic labels; no `file:`/`filelib:`/`open_port` call consumes it in this file, so path-traversal axes have no sink to disagree at.\
+Axes examined: presence of any filesystem sink for `File` in this file (none), caller-provided shape (`elixir_def.erl:226-239` yields an absname binary) | Not examined: none (path normalization/traversal/symlink/NUL axes are inapplicable absent a filesystem op here).\
+Basis: verified.\
 Depends on: `Elixir.Kernel.LexicalTracker` — `set_file/2` stores the name for warning locations and does not open/stat the path.
 
-**`trace/2` `?tracker:*` dispatch calls (lines 35–73) — Shared mutable state / atom exhaustion / deserialisation**
-Reason: the events originate from internal `elixir_env:trace` callers in the expander and carry already-resolved atoms/terms (`Module`, `Function`, `Arity`, `App`, `Path`, `Return`); this file creates no atoms and deserializes no bytes — it forwards existing terms to the per-compilation tracker gen_server, whose state is bounded by source size and scoped to the one compilation.
-Axes examined: atom creation in-file (none), binary_to_term/consult in-file (none), value origin (internal trace emitters) | Not examined: none.
-Basis: verified.
+**`trace/2` `?tracker:*` dispatch calls (lines 35–73) — Shared mutable state / atom exhaustion / deserialisation**\
+Reason: the events originate from internal `elixir_env:trace` callers in the expander and carry already-resolved atoms/terms (`Module`, `Function`, `Arity`, `App`, `Path`, `Return`); this file creates no atoms and deserializes no bytes — it forwards existing terms to the per-compilation tracker gen_server, whose state is bounded by source size and scoped to the one compilation.\
+Axes examined: atom creation in-file (none), binary_to_term/consult in-file (none), value origin (internal trace emitters) | Not examined: none.\
+Basis: verified.\
 Depends on: `Elixir.Kernel.LexicalTracker` — treats forwarded terms as opaque bounded state, not as a match-spec or callable.
 
-**`ExecutionCallback` / `AfterExecutionCallback` invocation (lines 18, 23, 32–33) — Code execution**
-Reason: these are compiler-internal closures supplied by `elixir_compiler`/`elixir_def`/`elixir_module`, not values derived from untrusted source; invoking them is ordinary compiler control flow.
-Axes examined: origin of the fun values (internal callers per callgraph) | Not examined: none.
+**`ExecutionCallback` / `AfterExecutionCallback` invocation (lines 18, 23, 32–33) — Code execution**\
+Reason: these are compiler-internal closures supplied by `elixir_compiler`/`elixir_def`/`elixir_module`, not values derived from untrusted source; invoking them is ordinary compiler control flow.\
+Axes examined: origin of the fun values (internal callers per callgraph) | Not examined: none.\
 Basis: verified.
 
-**`?tracker:start_link/0` / `unlink/1` / `?tracker:stop/1` (lines 14, 27–28) — Concurrency / process lifecycle**
-Reason: the tracker is created once per `run/3`, addressed only by `Pid` (never a registered name, so no DSG-010 name race), and torn down in a balanced `try/after`; `unlink` before `stop` is the standard signal-suppression pattern.
-Axes examined: name-vs-pid resolution, cleanup on throw (after clause), double-stop | Not examined: none.
+**`?tracker:start_link/0` / `unlink/1` / `?tracker:stop/1` (lines 14, 27–28) — Concurrency / process lifecycle**\
+Reason: the tracker is created once per `run/3`, addressed only by `Pid` (never a registered name, so no DSG-010 name race), and torn down in a balanced `try/after`; `unlink` before `stop` is the standard signal-suppression pattern.\
+Axes examined: name-vs-pid resolution, cleanup on throw (after clause), double-stop | Not examined: none.\
 Basis: verified.
 
-**`elixir_config:is_bootstrap/0` (line 12) — Shared mutable state read**
-Reason: a read of a global compiler flag set at boot by the operator, not written from external input in this file, selecting the bootstrap vs normal path; no attacker influence on the value here.
-Axes examined: read-vs-write in this file (read only), value provenance (operator/boot) | Not examined: none.
+**`elixir_config:is_bootstrap/0` (line 12) — Shared mutable state read**\
+Reason: a read of a global compiler flag set at boot by the operator, not written from external input in this file, selecting the bootstrap vs normal path; no attacker influence on the value here.\
+Axes examined: read-vs-write in this file (read only), value provenance (operator/boot) | Not examined: none.\
 Basis: verified.
 
-**`warn_unused_*` list comprehensions → `elixir_errors:file_warn` (lines 94–114) — Resource consumption / human-in-the-loop**
-Reason: iterate over tracker-collected unused entries (bounded by source size) to emit developer warnings; the displayed names are the developer's own already-sanitized aliases/imports and inform no security decision.
-Axes examined: iteration bound (source-bounded collection), homoglyph/bidi in displayed names (pre-rejected upstream; aliases ASCII-only), authentication use of output (none) | Not examined: none.
+**`warn_unused_*` list comprehensions → `elixir_errors:file_warn` (lines 94–114) — Resource consumption / human-in-the-loop**\
+Reason: iterate over tracker-collected unused entries (bounded by source size) to emit developer warnings; the displayed names are the developer's own already-sanitized aliases/imports and inform no security decision.\
+Axes examined: iteration bound (source-bounded collection), homoglyph/bidi in displayed names (pre-rejected upstream; aliases ASCII-only), authentication use of output (none) | Not examined: none.\
 Basis: verified.
 
 ### Did I verify this?

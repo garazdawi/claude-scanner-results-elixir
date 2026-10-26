@@ -19,8 +19,8 @@ The file is almost entirely a thin, faithful wrapper over Erlang's `:application
 - **Issue** — `traverse_env/2` has no clause for the case where a path element is applied to a non-container (scalar) value. When a path descends one level past where the config value stops being a map/keyword list, the third clause runs `Access.fetch(scalar, key)`, which raises `FunctionClauseError` ("no function clause matching in Access.fetch/2"). There is no guard converting an over-long path into `:error`.
 - **Class** — Documentation mismatch (also Missing clause / non-total function).
 - **Impact** — The `compile_env/3` `@doc` promises: *"If any of the keys in the path along the way is missing, the default value is used."* For a config value `[key: [foo: [bar: :baz]]]`, the path `[:key, :foo, :bar, :deeper]` should yield the default (for `compile_env/3`) or a clear `ArgumentError` naming the app/key (for `compile_env!/2`). Instead both raise a bare `Access.fetch/2` error that names neither the application nor the offending config path, so a developer whose compile-time path is one level too deep gets a compile failure that tells them nothing about what to fix. Because this fires at compile time, it aborts the whole build.
-- **Evidence** — `verified`.
-  Command: `Application.compile_env(env, :my_app, [:key, :foo, :bar, :deeper], :DEF)` with `Application.put_env(:my_app, :key, foo: [bar: :baz])`.
+- **Evidence** — `verified`.\
+  Command: `Application.compile_env(env, :my_app, [:key, :foo, :bar, :deeper], :DEF)` with `Application.put_env(:my_app, :key, foo: [bar: :baz])`.\
   Output: `deeper-into-scalar => no function clause matching in Access.fetch/2`; the `:DEF` default is never returned. The `compile_env!/2` variant gives the same cryptic message instead of the helpful `"could not fetch application environment ... for application ..."` `ArgumentError` it produces when the top-level key is absent.
 - **Suggested fix** — Add a clause treating "path continues into a non-container" as a miss:
   ```elixir

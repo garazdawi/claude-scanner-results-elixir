@@ -28,67 +28,67 @@ This is the Elixir→Erlang compiler backend (translation, form generation, chun
 
 ### Ruled out
 
-- **`term_to_binary` — checker chunk (line 148) and docs chunk (line 562, `[compressed | ChunkOpts]`)**
-  Reason — Serialization (encode) of compile-time-produced data into `"ExCk"`/`"Docs"` chunks; not a decode/deserialization sink, and any decompression/atom-exhaustion risk lives in the *reader* (`beam_lib`/`Code.fetch_docs`), not here.
-  Axes examined: direction (encode vs decode), compression flag | Not examined: reader-side decode of the produced chunk (out of file).
-  Basis — asserted.
+- **`term_to_binary` — checker chunk (line 148) and docs chunk (line 562, `[compressed | ChunkOpts]`)**\
+  Reason — Serialization (encode) of compile-time-produced data into `"ExCk"`/`"Docs"` chunks; not a decode/deserialization sink, and any decompression/atom-exhaustion risk lives in the *reader* (`beam_lib`/`Code.fetch_docs`), not here.\
+  Axes examined: direction (encode vs decode), compression flag | Not examined: reader-side decode of the produced chunk (out of file).\
+  Basis — asserted.\
   Depends on: `beam_lib` / `Code` — the modules that later `binary_to_term` these chunks are responsible for safe decode of untrusted `.beam` files.
 
-- **`erl_eval:expr/4` (line 63, `definition_to_anonymous/5`)**
-  Reason — Evaluates the module's own `def`/`defmacro` clauses into an anonymous function during compilation; running the code being compiled is by design (macros execute at compile time), so no privilege boundary is crossed.
-  Axes examined: origin of `Fun`/handlers, whether it is a sandbox claim | Not examined: none.
-  Basis — asserted.
+- **`erl_eval:expr/4` (line 63, `definition_to_anonymous/5`)**\
+  Reason — Evaluates the module's own `def`/`defmacro` clauses into an anonymous function during compilation; running the code being compiled is by design (macros execute at compile time), so no privilege boundary is crossed.\
+  Axes examined: origin of `Fun`/handlers, whether it is a sandbox claim | Not examined: none.\
+  Basis — asserted.\
   Depends on: `elixir_def.erl` — supplies `Clauses`, `LocalHandler`, `ExternalHandler` from the source under compilation; a caller compiling untrusted source already accepts code execution.
 
-- **`compile:noenv_forms` (line 34) / `elixir_erl_compiler:erl_to_core` (line 32), `debug_info(core_v1/erlang_v1, …)`**
-  Reason — Runs on `Map` extracted from a stored `{elixir_v1, Map, Specs}` debug-info term; reaching it requires reading debug_info from a crafted `.beam`, and a malformed `Map` yields only a contained function_clause crash. Loading an untrusted `.beam` is already arbitrary code.
-  Axes examined: reachability via `Code.fetch_debug_info`/`beam_lib`, crash containment (try/catch at line 34) | Not examined: full `Map`-shape fuzzing of `dynamic_form/2`.
-  Basis — asserted.
+- **`compile:noenv_forms` (line 34) / `elixir_erl_compiler:erl_to_core` (line 32), `debug_info(core_v1/erlang_v1, …)`**\
+  Reason — Runs on `Map` extracted from a stored `{elixir_v1, Map, Specs}` debug-info term; reaching it requires reading debug_info from a crafted `.beam`, and a malformed `Map` yields only a contained function_clause crash. Loading an untrusted `.beam` is already arbitrary code.\
+  Axes examined: reachability via `Code.fetch_debug_info`/`beam_lib`, crash containment (try/catch at line 34) | Not examined: full `Map`-shape fuzzing of `dynamic_form/2`.\
+  Basis — asserted.\
   Depends on: `beam_lib`/`Code` — the `{elixir_v1,Map,Specs}` term is `binary_to_term`'d from a `.beam`'s `Dbgi` chunk upstream; trusting an untrusted `.beam` is out of scope.
 
-- **`elixir_erl_compiler:noenv_forms` (line 525, `load_form/5`)**
-  Reason — Compiles the Erlang forms this module itself generated from the trusted compilation pipeline (`dynamic_form` output).
-  Axes examined: origin of `Prefix ++ Specs ++ Forms` | Not examined: none.
-  Basis — asserted.
+- **`elixir_erl_compiler:noenv_forms` (line 525, `load_form/5`)**\
+  Reason — Compiles the Erlang forms this module itself generated from the trusted compilation pipeline (`dynamic_form` output).\
+  Axes examined: origin of `Prefix ++ Specs ++ Forms` | Not examined: none.\
+  Basis — asserted.\
   Depends on: `elixir_erl_compiler.erl` — compiles forms produced by `elixir_module`/`elixir_expand`/this file.
 
-- **`list_to_atom` via `elixir_utils:macro_name/1` (lines 264, 485)**
-  Reason — Creates one `"MACRO-"++Name` atom per `defmacro`/`defmacrop`; `Name` is already an atom from the parsed source and the count is bounded by the number of macros in the module being compiled.
-  Axes examined: unboundedness, external-vs-source origin of `Name` | Not examined: none.
-  Basis — asserted.
+- **`list_to_atom` via `elixir_utils:macro_name/1` (lines 264, 485)**\
+  Reason — Creates one `"MACRO-"++Name` atom per `defmacro`/`defmacrop`; `Name` is already an atom from the parsed source and the count is bounded by the number of macros in the module being compiled.\
+  Axes examined: unboundedness, external-vs-source origin of `Name` | Not examined: none.\
+  Basis — asserted.\
   Depends on: `elixir_utils.erl:27-28` — `macro_name/1` prefixes an existing atom; atom growth is bounded by source size.
 
-- **`elixir_utils:characters_to_list/1` (lines 196, 254, 557)**
-  Reason — Converts source-file paths (binaries) to lists; on invalid UTF-8 it raises `conversion_error` (surfaces the error, no silent replacement), satisfying UTF8_DECODE_ERRORS_SURFACED. Input is the compiler's own `RelativeFile`/`File`, not network data.
-  Axes examined: invalid UTF-8, incomplete sequence (both raise), input origin | Not examined: none.
+- **`elixir_utils:characters_to_list/1` (lines 196, 254, 557)**\
+  Reason — Converts source-file paths (binaries) to lists; on invalid UTF-8 it raises `conversion_error` (surfaces the error, no silent replacement), satisfying UTF8_DECODE_ERRORS_SURFACED. Input is the compiler's own `RelativeFile`/`File`, not network data.\
+  Axes examined: invalid UTF-8, incomplete sequence (both raise), input origin | Not examined: none.\
   Basis — verified.
 
-- **`io_lib:format/2` in `format_error/1` (lines 686-696)**
-  Reason — Format strings are compile-time constants; arguments are callback names/arities and `Kernel.inspect` outputs. No user-controlled data reaches the format template, so no format-directive injection.
-  Axes examined: format-string constancy, `~ts` on non-list (args are inspected binaries) | Not examined: none.
+- **`io_lib:format/2` in `format_error/1` (lines 686-696)**\
+  Reason — Format strings are compile-time constants; arguments are callback names/arities and `Kernel.inspect` outputs. No user-controlled data reaches the format template, so no format-directive injection.\
+  Axes examined: format-string constancy, `~ts` on non-list (args are inspected binaries) | Not examined: none.\
   Basis — verified.
 
-- **ETS reads (`ets:lookup_element`/`ets:lookup`, lines 168, 591, 599, 611, 619, 628)**
-  Reason — Read the module's own data tables (`Set`) populated earlier during its compilation; intra-compilation trusted state, single-writer (`elixir_module`).
-  Axes examined: table origin, writer identity | Not examined: concurrent cross-process poisoning (tables are per-module compilation).
-  Basis — asserted.
+- **ETS reads (`ets:lookup_element`/`ets:lookup`, lines 168, 591, 599, 611, 619, 628)**\
+  Reason — Read the module's own data tables (`Set`) populated earlier during its compilation; intra-compilation trusted state, single-writer (`elixir_module`).\
+  Axes examined: table origin, writer identity | Not examined: concurrent cross-process poisoning (tables are per-module compilation).\
+  Basis — asserted.\
   Depends on: `elixir_module.erl` — owns/populates the `Set`/`Bag` tables for the module under compilation.
 
-- **`signature_to_binary/3` → `Inspect.Algebra.format(_, infinity)` (lines 647-650)**
-  Reason — Potential `O(depth²)` layout cost, but bounded by a single function *signature* AST the module author wrote; runs only at compile time when `docs` config is true, no trust boundary crossed (self-inflicted).
-  Axes examined: width=`infinity` vs finite, signature nesting depth, compile-time-only trigger | Not examined: adversarial default-argument nesting cost curve.
-  Basis — asserted.
+- **`signature_to_binary/3` → `Inspect.Algebra.format(_, infinity)` (lines 647-650)**\
+  Reason — Potential `O(depth²)` layout cost, but bounded by a single function *signature* AST the module author wrote; runs only at compile time when `docs` config is true, no trust boundary crossed (self-inflicted).\
+  Axes examined: width=`infinity` vs finite, signature nesting depth, compile-time-only trigger | Not examined: adversarial default-argument nesting cost curve.\
+  Basis — asserted.\
   Depends on: `Elixir.Inspect.Algebra` — `format/2` cost scales with the compile-time signature the author controls (cf. memory `inspect-algebra-review`).
 
-- **`elixir_to_erl/2` recursion on nested literals (lines 70-129)**
-  Reason — Non-tail recursion over nested tuples/lists/maps could deep-recurse, but only on the module's own literal AST at compile time; self-inflicted, no external boundary.
-  Axes examined: nesting depth, tuple/list/map/bitstring branches | Not examined: parser-imposed nesting ceiling upstream.
-  Basis — asserted.
+- **`elixir_to_erl/2` recursion on nested literals (lines 70-129)**\
+  Reason — Non-tail recursion over nested tuples/lists/maps could deep-recurse, but only on the module's own literal AST at compile time; self-inflicted, no external boundary.\
+  Axes examined: nesting depth, tuple/list/map/bitstring branches | Not examined: parser-imposed nesting ceiling upstream.\
+  Basis — asserted.\
   Depends on: `elixir_parser`/`elixir_tokenizer` — nesting depth of literals is bounded before reaching code-gen.
 
-- **`get_ann/1` (lines 48-56, exported)**
-  Reason — Builds `erl_anno` from an opts proplist; `line`/`column` are integer-guarded (`when is_integer(...)`), non-integers fall through the catch-all clause. No dangerous sink.
-  Axes examined: non-integer line/column, missing keys, extra keys | Not examined: negative/huge integers into `erl_anno:new` (accepted by erl_anno, no security effect).
+- **`get_ann/1` (lines 48-56, exported)**\
+  Reason — Builds `erl_anno` from an opts proplist; `line`/`column` are integer-guarded (`when is_integer(...)`), non-integers fall through the catch-all clause. No dangerous sink.\
+  Axes examined: non-integer line/column, missing keys, extra keys | Not examined: negative/huge integers into `erl_anno:new` (accepted by erl_anno, no security effect).\
   Basis — verified.
 
 ### Did I verify this?

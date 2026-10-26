@@ -26,7 +26,7 @@ _Re-reviewed on 2026-08-27 (second pass; hedges from first pass verified against
 - **Boundary** — Untrusted source text crossing into the compiler front-end via a documented public parse API.
 - **Impact** — Confidentiality: none. Integrity: none. Availability: super-linear CPU/allocation in the parsing process; a ~256 KB expression already costs ~24 s, ~1 MB extrapolates to ~6 min of single-core time, and repeated submissions saturate all cores. Bounded to the caller's process.
 - **Validation (this pass, fresh runs)** —
-  - Re-compiled this exact `.yrl` with `yecc` + `erlc` and drove the alias path with hand-built tokens (`{alias,{1,C,nil},'A'}` / `{'.',{1,C,nil}}`), process dict set to `columns=false, token_metadata=false, literal_encoder=false, warnings=[]`:
+  - Re-compiled this exact `.yrl` with `yecc` + `erlc` and drove the alias path with hand-built tokens (`{alias,{1,C,nil},'A'}` / `{'.',{1,C,nil}}`), process dict set to `columns=false, token_metadata=false, literal_encoder=false, warnings=[]`:\
     `ran erl -noshell -pa . -eval 'drive:go()'` → `N=8000 75.02 ms`, `N=16000 367.09 ms`, `N=32000 1603.81 ms`, `N=64000 5881.66 ms`, all `segs=N`. Each N-doubling ≈4×'s the time — the O(n²) signature; `segs=N` confirms a single flat `__aliases__` node built by repeated single-element appends.
   - Prior-pass end-to-end through the real tokenizer+parser (`Code.string_to_quoted/2`, Elixir 1.21.0-dev): `n=128000 bytes=255999 24264.1 ms segs=128000` — consistent with the fresh direct-token curve.
   - The quadratic is unique to this path: every other list accumulator in the file prepends and `reverse/1`s once (`container_args_base`, `call_args_no_parens_comma_expr`, `kw_base`, `assoc_base`), i.e. linear; only `build_dot_alias` appends to the end.

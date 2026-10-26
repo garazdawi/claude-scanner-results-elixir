@@ -20,39 +20,39 @@ The threat model's attacker is *a supplier of untrusted Elixir source or an untr
 
 ### Ruled out
 
-- **`elixir_utils:characters_to_binary(H)` in `get_dot_iex/1` (`iex.erl:81`)** — the `--dot-iex` path.
-Reason — `H` is the argv element after `--dot-iex`; operator-controlled, never attacker-supplied. The callee surfaces bad UTF-8 as a raised `UnicodeConversionError` rather than emitting garbage (`elixir_utils.erl:148-155`), so even a malformed value only self-crashes the operator's own boot.
-Axes examined: valid UTF-8, invalid UTF-8 (`{error,_,_}`), incomplete sequence (`{incomplete,_,_}`), already-binary input | Not examined: none.
+- **`elixir_utils:characters_to_binary(H)` in `get_dot_iex/1` (`iex.erl:81`)** — the `--dot-iex` path.\
+Reason — `H` is the argv element after `--dot-iex`; operator-controlled, never attacker-supplied. The callee surfaces bad UTF-8 as a raised `UnicodeConversionError` rather than emitting garbage (`elixir_utils.erl:148-155`), so even a malformed value only self-crashes the operator's own boot.\
+Axes examined: valid UTF-8, invalid UTF-8 (`{error,_,_}`), incomplete sequence (`{incomplete,_,_}`), already-binary input | Not examined: none.\
 Basis — verified.
 
-- **`--dot-iex` path → `{dot_iex, …}` opt → later evaluated as code (`iex.erl:78,81`)** — code-execution sink (in `Elixir.IEx.Server`, out of this file).
-Reason — the operator names a config file to load and evaluate, exactly like `.bashrc`/`.iex.exs`; the file's contents are operator-trusted, and the eval happens in a different module. No trust boundary is crossed here.
-Axes examined: path present/absent, path as last arg with no value (falls through to `nil` via `:82-83`), relative/absolute path | Not examined: none.
+- **`--dot-iex` path → `{dot_iex, …}` opt → later evaluated as code (`iex.erl:78,81`)** — code-execution sink (in `Elixir.IEx.Server`, out of this file).\
+Reason — the operator names a config file to load and evaluate, exactly like `.bashrc`/`.iex.exs`; the file's contents are operator-trusted, and the eval happens in a different module. No trust boundary is crossed here.\
+Axes examined: path present/absent, path as last arg with no value (falls through to `nil` via `:82-83`), relative/absolute path | Not examined: none.\
 Basis — verified (parsing + fall-through read in this file; downstream eval is by-design and out-of-file).
 
-- **`'Elixir.IEx.Server':run_from_shell(Opts, MFA)` in `start/2` (`iex.erl:48`)** — MFA dispatch / code execution.
-Reason — `MFA` originates from internal builders (`start_mfa/2` → `{elixir,start_cli,[]}` or `{?MODULE,sync_remote,[…]}`; `start/0` → `{elixir_utils,noop,[]}`) or from an embedder calling the documented `start/2` API. An embedder passing a hostile `MFA` already has BEAM code execution and gains nothing new; a plain caller cannot influence it.
-Axes examined: MFA from each internal builder, embedder-supplied MFA (uplift test) | Not examined: none.
+- **`'Elixir.IEx.Server':run_from_shell(Opts, MFA)` in `start/2` (`iex.erl:48`)** — MFA dispatch / code execution.\
+Reason — `MFA` originates from internal builders (`start_mfa/2` → `{elixir,start_cli,[]}` or `{?MODULE,sync_remote,[…]}`; `start/0` → `{elixir_utils,noop,[]}`) or from an embedder calling the documented `start/2` API. An embedder passing a hostile `MFA` already has BEAM code execution and gains nothing new; a plain caller cannot influence it.\
+Axes examined: MFA from each internal builder, embedder-supplied MFA (uplift test) | Not examined: none.\
 Basis — verified.
 
-- **`--remsh` `Remote` → `{remote, Remote, MFA}` → `user_drv:start` → remote-node connect (`iex.erl:70`, consumed at `elixir.erl:180`)** — network / node-name handling.
-Reason — `Remote` is an operator-supplied node name; connecting to a distributed node is gated by the Erlang distribution cookie, the standard trust model. One node-name value per boot, operator-chosen; no atom-exhaustion (single conversion) and no attacker control of the target.
-Axes examined: node name present/absent, remsh as last arg with no value (`get_remsh` fall-through to `nil`, `:86-87`), arbitrary node string | Not examined: none.
+- **`--remsh` `Remote` → `{remote, Remote, MFA}` → `user_drv:start` → remote-node connect (`iex.erl:70`, consumed at `elixir.erl:180`)** — network / node-name handling.\
+Reason — `Remote` is an operator-supplied node name; connecting to a distributed node is gated by the Erlang distribution cookie, the standard trust model. One node-name value per boot, operator-chosen; no atom-exhaustion (single conversion) and no attacker control of the target.\
+Axes examined: node name present/absent, remsh as last arg with no value (`get_remsh` fall-through to `nil`, `:86-87`), arbitrary node string | Not examined: none.\
 Basis — verified (this file + caller `elixir.erl:179-180`); distribution-cookie enforcement is OTP-standard.
 
-- **`sync_remote/2` message passing (`iex.erl:73-75`)** — exported function / concurrency.
-Reason — it sends `{'begin', Ref, self()}` to `Parent` and blocks on `receive {done, Ref}`. `Ref` is an unforgeable `make_ref()`. An arbitrary caller can only make its *own* process send one message and then block; it cannot unblock another process's `receive` without the matching `Ref`.
-Axes examined: arbitrary `Parent` pid, arbitrary `Ref`, self-DoS by blocking | Not examined: none.
+- **`sync_remote/2` message passing (`iex.erl:73-75`)** — exported function / concurrency.\
+Reason — it sends `{'begin', Ref, self()}` to `Parent` and blocks on `receive {done, Ref}`. `Ref` is an unforgeable `make_ref()`. An arbitrary caller can only make its *own* process send one message and then block; it cannot unblock another process's `receive` without the matching `Ref`.\
+Axes examined: arbitrary `Parent` pid, arbitrary `Ref`, self-DoS by blocking | Not examined: none.\
 Basis — verified.
 
-- **`spawn`/`spawn_link` (`iex.erl:41,62`)** — concurrency.
-Reason — the spawned closures capture only internal values (an unforgeable `Ref`, hard-coded MFAs, `self()`); no external data influences scheduling or target, and the linked helper only relays a local `Ref` handshake.
-Axes examined: captured-variable provenance, link-propagation effect | Not examined: none.
+- **`spawn`/`spawn_link` (`iex.erl:41,62`)** — concurrency.\
+Reason — the spawned closures capture only internal values (an unforgeable `Ref`, hard-coded MFAs, `self()`); no external data influences scheduling or target, and the linked helper only relays a local `Ref` handshake.\
+Axes examined: captured-variable provenance, link-propagation effect | Not examined: none.\
 Basis — verified.
 
-- **`get_dot_iex/1` / `get_remsh/1` argv walk (`iex.erl:81-87`)** — resource/robustness (crash on malformed argv).
-Reason — each clause consumes one list element (`[_ | T]`) and terminates at `[]`; the `["--flag"]`-with-no-value case falls through the two-element head to the single-element head and returns `nil`. Argv is finite, so no unbounded loop and no unmatched-clause crash.
-Axes examined: flag absent, flag last with no value, flag mid-list, empty list, repeated flags (first match wins) | Not examined: none.
+- **`get_dot_iex/1` / `get_remsh/1` argv walk (`iex.erl:81-87`)** — resource/robustness (crash on malformed argv).\
+Reason — each clause consumes one list element (`[_ | T]`) and terminates at `[]`; the `["--flag"]`-with-no-value case falls through the two-element head to the single-element head and returns `nil`. Argv is finite, so no unbounded loop and no unmatched-clause crash.\
+Axes examined: flag absent, flag last with no value, flag mid-list, empty list, repeated flags (first match wins) | Not examined: none.\
 Basis — verified.
 
 ### Did I verify this?

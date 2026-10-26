@@ -49,15 +49,15 @@ No findings.
 - **Backend-name execution (design contract, not a neighbour-verifiable claim):** the "downstream callers might forward untrusted bytes as a backend atom" hedge concerns arbitrary application callers of the public `Logger` API, which are not in this folder's callgraph. There is no neighbour module that could confirm or refute it, and this file itself never creates an atom or reads external data (grep-confirmed: no `String.to_atom`, `Module.concat`, `binary_to_atom`, decoder, or path op). It therefore cannot be upgraded to a finding *in this file* — there is no sink here that consumes external data. It remains a documented caveat about API misuse, not an unverified assumption affecting this file's verdict.
 
 ### Ruled out
-- **`ensure_started/0` named-process race (TOCTOU).** Two concurrent callers can both observe `nil` and both call `Supervisor.start_child`; the loser receives `{:error, {:already_started, _}}`, which `ensure_started/0` discards (always returns `:ok`). No crash, no state corruption.
+- **`ensure_started/0` named-process race (TOCTOU).** Two concurrent callers can both observe `nil` and both call `Supervisor.start_child`; the loser receives `{:error, {:already_started, _}}`, which `ensure_started/0` discards (always returns `:ok`). No crash, no state corruption.\
   Axes examined: control-flow of the discarded return value; supervisor idempotency. | Not examined: interleaving under real scheduler contention (not executed — no deterministic harness for the race; verdict rests on the return value being unconditionally discarded, which does not depend on timing). Entry: asserted.
-- **`configure/2` `is_list(options)` guard → `FunctionClauseError`.** Reachable only by a caller violating the `@spec` (non-keyword). Contract violation by a trusted caller, not attacker data.
+- **`configure/2` `is_list(options)` guard → `FunctionClauseError`.** Reachable only by a caller violating the `@spec` (non-keyword). Contract violation by a trusted caller, not attacker data.\
   Axes examined: guard reachability from public API. | Not examined: none (the only input carrying this axis is a caller-supplied non-list, which is a trusted-caller contract breach by definition; no attacker path exists).
-- **Unbounded `add/2` backend creation (resource consumption).** Driven by trusted operator calls; `supervisor.ex:66` additionally bounds restarts (`max_restarts: 30, max_seconds: 3`). Confirmed by reading `supervisor.ex`.
+- **Unbounded `add/2` backend creation (resource consumption).** Driven by trusted operator calls; `supervisor.ex:66` additionally bounds restarts (`max_restarts: 30, max_seconds: 3`). Confirmed by reading `supervisor.ex`.\
   Axes examined: caller trust; restart-intensity bound. | Not examined: none.
-- **`Application.get_env`/`fetch_env!` reads (shared state).** Operator-controlled app-env, trusted per threat model; no externally-derived key or value.
+- **`Application.get_env`/`fetch_env!` reads (shared state).** Operator-controlled app-env, trusted per threat model; no externally-derived key or value.\
   Axes examined: input source. | Not examined: none.
-- **Atom creation.** None in this file — no `String.to_atom`, `Module.concat`, or `binary_to_atom`; the backend atom is supplied already-interned by the caller. Grep-confirmed.
+- **Atom creation.** None in this file — no `String.to_atom`, `Module.concat`, or `binary_to_atom`; the backend atom is supplied already-interned by the caller. Grep-confirmed.\
   Axes examined: static presence of atom-creating sinks. | Not examined: none.
 
 ### Dropped in re-review

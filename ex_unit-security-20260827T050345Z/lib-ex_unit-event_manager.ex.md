@@ -16,20 +16,20 @@ No findings.
 
 ### Ruled out
 
-- **`add_handler/3` module dispatch (`Code.ensure_loaded?` / `function_exported?` / `GenServer.start_link` / `:gen_event.add_handler`)** — Confidence: high (dismissal).
+- **`add_handler/3` module dispatch (`Code.ensure_loaded?` / `function_exported?` / `GenServer.start_link` / `:gen_event.add_handler`)** — Confidence: high (dismissal).\
   A code-execution/behaviour-dispatch sink shape: `GenServer.start_link(handler, opts)` (line 45) and `:gen_event.add_handler(event, handler, opts)` (line 41) instantiate an arbitrary module named by `handler`. **Provenance now verified by reading the only caller**, `ExUnit.Runner`:
   - `runner.ex:43` — `EM.add_handler(manager, ExUnit.RunnerStats, opts)`: `handler` is the compile-time-literal internal module `ExUnit.RunnerStats`.
   - `runner.ex:76` — `Enum.each(opts[:formatters], &EM.add_handler(manager, &1, opts))`: `handler` is each element of `opts[:formatters]`, the developer-supplied `:formatters` suite config (default `[ExUnit.CLIFormatter]`).
-  - `opts` is the ExUnit suite configuration threaded through `run/1` → `run_with_trap/1` → `configure/1` (`runner.ex:40-76`), never a dependency/archive/network/manifest value.
+  - `opts` is the ExUnit suite configuration threaded through `run/1` → `run_with_trap/1` → `configure/1` (`runner.ex:40-76`), never a dependency/archive/network/manifest value.\
   No atom is created from external bytes here; both `handler` values are trusted developer/operator config. `Axes examined: handler provenance (both call sites in runner.ex), opts provenance (suite config), dynamic-atom creation (none) | Not examined: none.`
 
-- **`notify/2` fan-out TOCTOU (`which_children/1` then per-child `GenServer.cast/2`)** — Confidence: high (dismissal).
+- **`notify/2` fan-out TOCTOU (`which_children/1` then per-child `GenServer.cast/2`)** — Confidence: high (dismissal).\
   `notify/2` (lines 87-95) enumerates `DynamicSupervisor.which_children(sup)` then `GenServer.cast(pid, msg)` for each child. Children are `restart: :temporary` (line 47), so a formatter that crashes between the `which_children` snapshot and the `cast` is gone by the time the cast fires. **Re-ran the behaviour** (`elixir castdead2.exs`): started a GenServer, `GenServer.stop(pid, :normal, :infinity)`, confirmed `Process.alive?(pid) == false`, then `GenServer.cast(pid, {:test_finished, :payload})` → `cast_to_dead_result: :ok` and the caller survived. So a formatter crash mid-dispatch cannot raise in or wedge the notifier. `Axes examined: cast-to-dead-pid return value (executed, :ok), child restart mode (:temporary, source line 47), untriggered-by-untrusted-input (msg is runner metadata) | Not examined: none.`
 
-- **`module_started/2` & `module_finished/2` `Map.put(test_module, :__struct__, ExUnit.TestCase)`** — Confidence: high (dismissal).
+- **`module_started/2` & `module_finished/2` `Map.put(test_module, :__struct__, ExUnit.TestCase)`** — Confidence: high (dismissal).\
   Lines 61 and 67 reshape an internal `%ExUnit.TestModule{}` into a legacy `ExUnit.TestCase` struct for the deprecated `:case_started`/`:case_finished` events (kept until v2.0 per the inline TODOs). `ExUnit.TestCase` is a compile-time literal atom (no dynamic atom creation), and the payload is internal test metadata built by `Runner.run_module/5` from `module.__ex_unit__()` (`runner.ex:241`). Backwards-compat shim, not a security issue. `Axes examined: atom literal vs dynamic (literal), payload provenance (runner-constructed) | Not examined: none.`
 
-- **No matching sinks** for the remaining Phase 1 classes — Confidence: high (dismissal).
+- **No matching sinks** for the remaining Phase 1 classes — Confidence: high (dismissal).\
   No `binary_to_term`/deserialisation, no file/path/archive operations, no OS-command or shell execution, no `Code.eval*`/`compile*`, no `String.to_atom`/`Module.concat` on external data, no regex compilation, no crypto comparison, no `Base`/`URI` round-trip, no EEx, no network, no persistent-term/ETS/app-env writes keyed on external input in this file. `Axes examined: full file scan for each sink class | Not examined: none.`
 
 ## Risks / caveats

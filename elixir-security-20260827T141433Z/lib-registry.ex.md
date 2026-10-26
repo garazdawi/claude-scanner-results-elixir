@@ -27,7 +27,7 @@ _Re-reviewed on 2026-08-28T12:31:13Z (Erlang/OTP 29, Elixir 1.21.0-dev)_
     - `{:unique, 1}`: waiter after 5004ms → `{:crash, :exit, {:timeout, {GenServer, :call, [pid, {:lock, :k}, 5000]}}}`
     - `{:unique, 4}`: waiter after 5008ms → same timeout exit
     - `{:duplicate, 1}`: waiter after 5003ms → same timeout exit
-    - `{:duplicate, 4}`: waiter after 5007ms → same timeout exit
+    - `{:duplicate, 4}`: waiter after 5007ms → same timeout exit\
     This is expected from the code — the partition `handle_call({:lock, key}, …)` path is identical regardless of `kind`/`partitions`; the only variation is which partition server pid is targeted — and the execution confirms it. The timeout is data-independent (purely the 5000 ms `GenServer.call` default).
   - **Self-heal (retained from first pass):** after the holder released, a new `Registry.lock(R, :k, ...)` acquired the lock, confirming the lock is not left stuck (impact = crashed waiters only), consistent with the `Process.alive?` skip in `dequeue/2`.
 - **Suggested fix:** Call the lock with an infinite timeout, matching the server's unbounded-defer design: `GenServer.call(pid, {:lock, key}, :infinity)` in `Registry.Partition.lock/3`. If a bounded wait is ever desired it should be an explicit, documented option on `Registry.lock/4`, and time out cleanly rather than by crashing the caller.

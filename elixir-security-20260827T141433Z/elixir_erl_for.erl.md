@@ -28,29 +28,29 @@ Per the folder invariant, raw bytes are sanitized in `elixir_tokenizer`; by this
 - No `binary_to_term`, no untrusted deserialization, and no OTP secure-coding "unsafe named function" call sites exist in this file, so the always-flag rule produced nothing.
 
 ### Ruled out
-- **Code execution (Erlang-abstract-format generation).**
-  Reason: the module emits abstract forms deterministically from the validated AST shape; it never evaluates external program text, and generated atoms/calls are all source literals.
-  Axes examined: enum vs bitstring generators, guard alternatives, filters, `into`/`uniq`/`reduce` options, `%MapSet{}` literal, bound/unbound bitstring sizes | Not examined: none.
+- **Code execution (Erlang-abstract-format generation).**\
+  Reason: the module emits abstract forms deterministically from the validated AST shape; it never evaluates external program text, and generated atoms/calls are all source literals.\
+  Axes examined: enum vs bitstring generators, guard alternatives, filters, `into`/`uniq`/`reduce` options, `%MapSet{}` literal, bound/unbound bitstring sizes | Not examined: none.\
   Basis: verified.
-- **Validation predicates (`valid_var_size/2`, `no_unbound_var/3`, `is_var/1`, `inline_or_into/1`, `returns_boolean/1`).**
-  Reason: these only gate *which* (equivalent) lowering is chosen; a wrong answer either falls back to the general reduce path or yields Erlang that fails its own compile (unbound var) — neither is exploitable, and I confirmed both the valid and `error` size-var paths produce correct output at runtime.
-  Axes examined: variable size, `default` size, integer/literal size, `op` (nested arithmetic) size, unbound pattern-local size var, string-literal segment expansion | Not examined: none.
+- **Validation predicates (`valid_var_size/2`, `no_unbound_var/3`, `is_var/1`, `inline_or_into/1`, `returns_boolean/1`).**\
+  Reason: these only gate *which* (equivalent) lowering is chosen; a wrong answer either falls back to the general reduce path or yields Erlang that fails its own compile (unbound var) — neither is exploitable, and I confirmed both the valid and `error` size-var paths produce correct output at runtime.\
+  Axes examined: variable size, `default` size, integer/literal size, `op` (nested arithmetic) size, unbound pattern-local size var, string-literal segment expansion | Not examined: none.\
   Basis: verified.
-- **Resource consumption / recursion depth (`translate_gen`, `build_reduce_each`, `join_filters`, `collect_filters`, `no_unbound_var`).**
-  Reason: recursion depth equals the count of generators/filters/segments written in the source, i.e. linear in source length with no amplification; the generated runtime code's cost tracks the comprehension normally.
-  Axes examined: many generators, interleaved filters, many bitstring segments, string-literal expansion (N wildcards per N chars) | Not examined: none.
+- **Resource consumption / recursion depth (`translate_gen`, `build_reduce_each`, `join_filters`, `collect_filters`, `no_unbound_var`).**\
+  Reason: recursion depth equals the count of generators/filters/segments written in the source, i.e. linear in source length with no amplification; the generated runtime code's cost tracks the comprehension normally.\
+  Axes examined: many generators, interleaved filters, many bitstring segments, string-literal expansion (N wildcards per N chars) | Not examined: none.\
   Basis: verified.
-- **Dead / unreachable defensive code (`comprehension_kind/1` `false` clause, the badarg catch-all clauses, `no_unbound_var` `error` branch, `?empty_map_set_pattern`).**
-  Reason: each clause is reachable — `comprehension_kind(false)`/`(bin,[])`/`(nil,_)` all correspond to real `into` states, the runtime badarg clauses fire on ill-typed accumulators, the size-var `error` branch fired in my test #7, and the MapSet pattern fired in test #5.
-  Axes examined: `into: false`/`%{}`/binary/MapSet, unbound-size fallback, badarg accumulator | Not examined: none.
+- **Dead / unreachable defensive code (`comprehension_kind/1` `false` clause, the badarg catch-all clauses, `no_unbound_var` `error` branch, `?empty_map_set_pattern`).**\
+  Reason: each clause is reachable — `comprehension_kind(false)`/`(bin,[])`/`(nil,_)` all correspond to real `into` states, the runtime badarg clauses fire on ill-typed accumulators, the size-var `error` branch fired in my test #7, and the MapSet pattern fired in test #5.\
+  Axes examined: `into: false`/`%{}`/binary/MapSet, unbound-size fallback, badarg accumulator | Not examined: none.\
   Basis: verified.
-- **Shared mutable state / concurrency / process-dictionary leakage.**
-  Reason: the module is purely functional — no `put`/`get`/`erase`, no ETS, no application env, no message passing, no registered-name resolution (grep returned zero matches for all of these).
-  Axes examined: process dict, ETS, app-env, name races | Not examined: none.
+- **Shared mutable state / concurrency / process-dictionary leakage.**\
+  Reason: the module is purely functional — no `put`/`get`/`erase`, no ETS, no application env, no message passing, no registered-name resolution (grep returned zero matches for all of these).\
+  Axes examined: process dict, ETS, app-env, name races | Not examined: none.\
   Basis: verified.
-- **Deserialization / atom exhaustion / command / file / network / crypto / NIF sinks.**
-  Reason: none of these primitives appear in the file (grep for the full OTP-secure-coding unsafe-call set returned no matches); all atoms are compile-time literals.
-  Axes examined: `binary_to_term`, `*_to_atom`, `os:cmd`/`open_port`, `file:`/`filelib`, crypto, `load_nif` | Not examined: none.
+- **Deserialization / atom exhaustion / command / file / network / crypto / NIF sinks.**\
+  Reason: none of these primitives appear in the file (grep for the full OTP-secure-coding unsafe-call set returned no matches); all atoms are compile-time literals.\
+  Axes examined: `binary_to_term`, `*_to_atom`, `os:cmd`/`open_port`, `file:`/`filelib`, crypto, `load_nif` | Not examined: none.\
   Basis: verified.
 
 ### Did I verify this?

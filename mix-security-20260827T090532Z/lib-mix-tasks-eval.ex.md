@@ -25,24 +25,24 @@ I re-confirmed there are no other sinks: no `System.cmd`/`os.cmd`/shell, no atom
 No findings
 
 ### Ruled out
-- **`Code.eval_string(to_eval)` (line 93) — arbitrary code execution.**
-  Confidence: High. `to_eval` originates solely from the `mix eval` command-line argument via a fully intra-file path (`args` (line 58) → `parse_head!` (line 60) → `head` (line 71) → `to_eval` (line 72)). No dependency, config file, network peer, git ref, or archive influences it, and no function on the path escapes this file. This is the task's documented contract (evaluate the given code), equivalent to `bash -c`, and matches the explicitly-excluded "victim evals their own input" case. Constructing `mix eval "$UNTRUSTED"` in a CI script is the operator building a dangerous invocation, not a defect in this task's contract.
+- **`Code.eval_string(to_eval)` (line 93) — arbitrary code execution.**\
+  Confidence: High. `to_eval` originates solely from the `mix eval` command-line argument via a fully intra-file path (`args` (line 58) → `parse_head!` (line 60) → `head` (line 71) → `to_eval` (line 72)). No dependency, config file, network peer, git ref, or archive influences it, and no function on the path escapes this file. This is the task's documented contract (evaluate the given code), equivalent to `bash -c`, and matches the explicitly-excluded "victim evals their own input" case. Constructing `mix eval "$UNTRUSTED"` in a CI script is the operator building a dangerous invocation, not a defect in this task's contract.\
   Axes examined: input provenance (CLI argv only), presence of any decode/fetch/read on the path (none), state restoration around the call. | Not examined: none.
 
-- **`System.argv(argv)` global-state mutation (line 91).**
-  Confidence: High. VM-global write derived from CLI args, but it is intended behaviour (the eval'd code is meant to observe the passed argv) and is restored in the `after` clause (line 96) even if evaluation raises (the `try`/`after` on lines 90–97 guarantees `System.argv(old_argv)` runs on both normal return and raise). Any concurrent-reader race is self-inflicted within a single operator-driven build task, not an attacker boundary.
+- **`System.argv(argv)` global-state mutation (line 91).**\
+  Confidence: High. VM-global write derived from CLI args, but it is intended behaviour (the eval'd code is meant to observe the passed argv) and is restored in the `after` clause (line 96) even if evaluation raises (the `try`/`after` on lines 90–97 guarantees `System.argv(old_argv)` runs on both normal return and raise). Any concurrent-reader race is self-inflicted within a single operator-driven build task, not an attacker boundary.\
   Axes examined: restoration on raise (try/after balanced), provenance of `argv`. | Not examined: none.
 
-- **`Mix.Task.run("app.config", ["--no-app-loading" | args])` (line 75).**
-  Confidence: High. Forwards operator args to `app.config`, which evaluates the operator's own `mix.exs`/`config/*.exs`. Per the folder threat model, executing operator-controlled project config is by design (already full RCE for whoever controls those files), not a boundary this file defends. The forwarded value is the same `args` list — no untrusted source is introduced.
+- **`Mix.Task.run("app.config", ["--no-app-loading" | args])` (line 75).**\
+  Confidence: High. Forwards operator args to `app.config`, which evaluates the operator's own `mix.exs`/`config/*.exs`. Per the folder threat model, executing operator-controlled project config is by design (already full RCE for whoever controls those files), not a boundary this file defends. The forwarded value is the same `args` list — no untrusted source is introduced.\
   Axes examined: what data is forwarded (unmodified operator argv), whether the callee is a trust boundary (no, per threat model). | Not examined: none.
 
-- **`"--no-mix-exs" in args` check (line 77) vs. parsed `_opts` (line 59).**
-  Confidence: High. The code tests the raw `args` list rather than the discarded `_opts` result. Minor logic redundancy, not security-relevant: both reflect the same operator-supplied flag, and the worst case is a slightly different gate on whether `mix eval` refuses to run without a `mix.exs`. No privilege or trust boundary is involved.
+- **`"--no-mix-exs" in args` check (line 77) vs. parsed `_opts` (line 59).**\
+  Confidence: High. The code tests the raw `args` list rather than the discarded `_opts` result. Minor logic redundancy, not security-relevant: both reflect the same operator-supplied flag, and the worst case is a slightly different gate on whether `mix eval` refuses to run without a `mix.exs`. No privilege or trust boundary is involved.\
   Axes examined: security relevance of the gate (none — controls only a fail-closed error path). | Not examined: none.
 
-- **`OptionParser.parse_head!` / empty-`head` `Mix.raise` branch (lines 99–104) — dead-code check.**
-  Confidence: High. Reachable (invoking `mix eval` with no code argument), fails closed with an error message. Not dead, not a defect.
+- **`OptionParser.parse_head!` / empty-`head` `Mix.raise` branch (lines 99–104) — dead-code check.**\
+  Confidence: High. Reachable (invoking `mix eval` with no code argument), fails closed with an error message. Not dead, not a defect.\
   Axes examined: reachability, fail-closed behaviour. | Not examined: none.
 
 ## Risks / caveats

@@ -18,20 +18,20 @@ No findings.
 
 ### Ruled out
 
-- **`cmd/2` string form reaches `System.shell/2` (command execution / injection).**
-  Confidence: high (ruled out — verified).
-  Axes examined: input *shape* (string vs `{exe, args}` tuple); shell-metacharacter *interpretation*; whether this file *transforms* the command. | Not examined: none.
+- **`cmd/2` string form reaches `System.shell/2` (command execution / injection).**\
+  Confidence: high (ruled out — verified).\
+  Axes examined: input *shape* (string vs `{exe, args}` tuple); shell-metacharacter *interpretation*; whether this file *transforms* the command. | Not examined: none.\
   I read the sink directly: `Mix.Shell.cmd/3` at `shell.ex:161-165` dispatches `{command, args} -> System.cmd/3` (argv) and `command when is_binary -> System.shell/2` (shell). I re-ran both paths in the sandbox: the string form `"echo hi; echo X > /tmp/marker_string"` created the marker (`exists=true`) — `;`/`>` interpreted; the tuple form `{"echo", ["hi; echo X > ..."]}` did **not** create its marker (`exists=false`) — argv literal. This matches the documented contract at `shell.ex:119-142` ("`command` is either a string, to be executed as a `System.shell/2` command, or a `{executable, args}` to be executed via `System.cmd/3`"). Crucially, `quiet.ex:64` is `Mix.Shell.cmd(command, opts, fn data -> data end)` — no interpolation or string-building of `command` occurs in this file (confirmed by reading all 66 lines). Any real injection requires a *caller* to assemble a hostile string; that defect lives in the caller. Passing a `String.t()` and having it shell-execute is the `@spec`'d, documented contract — not a defect this file introduces. (Not upgraded to a finding: the shell-vs-argv choice, the sink, and the absence of local transformation are all now directly observed, so nothing is left asserted.)
 
-- **`error/1`, `prompt/1`, `yes?/2`, `print_app/0` delegations to `Mix.Shell.IO`.**
-  Confidence: high (ruled out — verified).
-  Axes examined: presence of any *wrapping/transformation* at the delegation boundary in `quiet.ex`; where each target's actual sink lives. | Not examined: none (for this file's boundary). The `Mix.Shell.IO` internals' own behaviour is a separate file's responsibility — see caveat below.
+- **`error/1`, `prompt/1`, `yes?/2`, `print_app/0` delegations to `Mix.Shell.IO`.**\
+  Confidence: high (ruled out — verified).\
+  Axes examined: presence of any *wrapping/transformation* at the delegation boundary in `quiet.ex`; where each target's actual sink lives. | Not examined: none (for this file's boundary). The `Mix.Shell.IO` internals' own behaviour is a separate file's responsibility — see caveat below.\
   I read `io.ex` in full. `error/1` (`io.ex:42-45`) does `IO.puts(:stderr, IO.ANSI.format(red(message)))`; `prompt/1` (`io.ex:52-59`) and `yes?/2` (`io.ex:88-110`) use `IO.gets`; `print_app/0` (`io.ex:23-29`) prints the project-stack app name. `quiet.ex` reaches all four via bare `defdelegate` (lines 19, 29, 36, 56) with no arguments touched, no options rewritten. There is no boundary logic here to carry a defect. Any concern about, e.g., raw ANSI/terminal-escape passthrough in `IO.ANSI.format(red(message))` originates and must be judged inside `Mix.Shell.IO`, not in this delegating shim.
 
-- **`info/1` no-op.**
+- **`info/1` no-op.**\
   Confidence: high (ruled out — verified). Axes examined: return value; presence of any sink. | Not examined: none. `def info(_message), do: :ok` (line 24) — argument discarded, no I/O, no sink. Contrast `Mix.Shell.IO.info/1` (`io.ex:34-37`) which does print; `Quiet` deliberately drops it (the entire point of the quiet shell).
 
-- **`cmd/2` identity callback `fn data -> data end`.**
+- **`cmd/2` identity callback `fn data -> data end`.**\
   Confidence: high (ruled out — verified). Axes examined: whether the callback's return value has any effect. | Not examined: none. I read the `Collectable` impl at `shell.ex:170-178`: `into/1` invokes `fun.(data)` on each `{:cont, data}` chunk but its result is fed back only as the accumulator for the next `{:cont, ...}`/`:done` step, and `Mix.Shell.cmd/3` discards the final accumulator (it returns only `status`, `shell.ex:161-167`). So returning `data` vs `:ok` from the callback is inert — the "quiet" behaviour comes from never writing the data anywhere. No security impact. (Note `shell.ex:146-151`: when `opts[:quiet]` is set, `Mix.Shell.cmd/3` replaces the callback with its own `fn x -> x end` — same inert identity.)
 
 ## Risks / caveats

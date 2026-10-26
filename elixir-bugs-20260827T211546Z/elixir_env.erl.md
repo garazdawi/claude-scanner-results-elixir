@@ -47,7 +47,7 @@ _Re-analysed on 2026-08-28_
 
 - **State / accumulator threading error**
   - **Reason** — `merge_vars/2` folds `V2` into `V1` as `Acc` keeping the max version (symmetric, order-independent); `merge_and_check_unused_vars/3` correctly returns `S` with the merged `unused` and the propagated `{Read, Write}`; no stale-variable reuse across rebinds.
-  - **Axes examined:** disjoint maps, overlapping keys with M1<M2 and M1>=M2, identical maps (short-circuit clause `merge_vars(V,V)`), empty map | Not examined: none
+  - **Axes examined:** disjoint maps, overlapping keys with M1&lt;M2 and M1&gt;=M2, identical maps (short-circuit clause `merge_vars(V,V)`), empty map | Not examined: none
   - **Basis** — verified
 
 - **Off-by-one / wrong arithmetic**

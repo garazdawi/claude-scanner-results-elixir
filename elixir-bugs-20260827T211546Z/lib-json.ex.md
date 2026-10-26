@@ -28,19 +28,19 @@ No findings.
 
 ### Ruled out
 
-- **`decode/3`'s three-clause `catch` is non-exhaustive → an `:error` class escapes and breaks the `{:error,_}` contract.**
+- **`decode/3`'s three-clause `catch` is non-exhaustive → an `:error` class escapes and breaks the `{:error,_}` contract.**\
   Fuzzed ~30 malformed inputs this pass (`01`, `-`, `1e`, `+1`, `[1,]`, `{"a":}`, `"\x"`, `"\ud800"`, lone/paired surrogates, `Infinity`, `NaN`, `[1,2] x`, `[1,2,\xFF]`, `<<0xFF>>`, `""`, `"   "`, `[`, `{`, `tru`, `nul`, `{"a":1,}`, …); every case returned a proper `{:error, reason}` in `{:unexpected_end | :invalid_byte | :unexpected_sequence}` — no `rescue`/`catch` fired. I additionally pushed the user-supplied-handler axis: a handler that raises (`float: fn _ -> raise "boom" end`) is swallowed by `:json` and surfaces as `{:error,{:unexpected_sequence,0,"1.5"}}`, while a *wrong* documented-shaped handler (`integer: &String.to_float/1` on `"123"`) raises `ArgumentError` that escapes the `catch` — but that is the caller supplying a broken decoder, which is the documented contract of `decode/3`, not a wrapper defect; the `decode/1` path cannot reach it. Basis: verified for tried axes. **Axes examined:** the 3 documented `:json` error classes, all handler slots via `decode/1`'s empty-list path, deep-nested errors, custom-handler raise/return. **Not examined:** proof that no *fourth* undocumented `:json` `:error` class exists for some exotic valid-looking input — absence cannot be established by fuzzing. Because that axis is untried, this entry stays **asserted**, not verified. Confidence: medium.
 
-- **`decode/1` reports a valid trailing-whitespace byte as `:invalid_byte` (naming the space, not the following non-JSON char).**
+- **`decode/1` reports a valid trailing-whitespace byte as `:invalid_byte` (naming the space, not the following non-JSON char).**\
   Re-ran both implementations: `JSON.decode("[1,2] x")` → `{:invalid_byte, 5, 32}`; bare `:json.decode("[1,2] x")` → `{:invalid_byte, 32}` — same byte value, so this wrapper mirrors Erlang's canonical decoder. The offset `byte_size(binary)-byte_size(rest)` is precisely the first byte after the complete top-level value (`"true false"`→`{:invalid_byte,4,32}`, `"123 456"`→`{:invalid_byte,3,32}`). Consistent, documented-shape result. Ruled out as not-a-defect. **Axes examined:** whitespace-trailing, non-ws-trailing, multi-token trailing, comparison vs bare `:json`. **Not examined:** none. Basis: verified.
 
-- **`__deriving__` with `:only` / `:except` / bare / empty-list.**
+- **`__deriving__` with `:only` / `:except` / bare / empty-list.**\
   Built structs for each variant. `only:` emits exactly the listed fields; `except:` drops the excluded; bare `@derive` emits all; and re-confirmed this pass that `only: []` yields `"{}"` (the `io == []` guard at line 74). Field/var hygiene in the generated `def encode(%{...}, encoder)` resolves correctly. **Axes examined:** only, except, bare, empty-only. **Not examined:** none. Basis: verified.
 
-- **`offset/1` returns wrong/zero position.**
+- **`offset/1` returns wrong/zero position.**\
   Errors at varying depth resolve via `error_info.cause.position`: top-level (`<<0xFF>>`→0), mid-array (`[1,2,\xFF]`→5), and deep-nested (`[1,2,{"k":"\ud800"}]`→20, executed this pass). `unexpected_end` reports `byte_size(binary)`; the `else -> 0` fallback only triggers when no `error_info` is present. **Axes examined:** depth 0 / mid / deep, all three error classes. **Not examined:** none. Basis: verified.
 
-- **`JSON.Encoder.Map.key/2` non-string keys / `protocol_encode` clause ordering.**
+- **`JSON.Encoder.Map.key/2` non-string keys / `protocol_encode` clause ordering.**\
   Re-executed: integer (`1`→`"1"`), float (`1.5`→`"1.5"`), atom (`:atom`→`"atom"`) and binary keys are stringified per the documented `%{String.Chars.t() => _}` contract; a tuple key (no `String.Chars` impl) raises `Protocol.UndefinedError` — the documented contract, not a bug. `protocol_encode`'s `%{} = value when not is_map_key(value, :__struct__)` correctly routes plain maps to `JSON.Encoder.Map` before the struct fallthrough. **Axes examined:** int/float/atom/binary/no-impl keys, map-vs-struct dispatch order. **Not examined:** none. Basis: verified.
 
 ### Did I verify this?

@@ -27,89 +27,89 @@ The high-value paths I scrutinized and cleared:
 
 ### Ruled out
 
-- **Operator / precedence typo**
-  Reason: The `if`-guards and boolean chains (lines 88–94, 134, 391–394, 641, 696) use the intended connectives; `/=` vs `=/=` at line 134/391 is immaterial because the operands are atoms.
-  Axes examined: atom conditions, integer/float exact-vs-coerced equality, guard `;`/`,` partitions | Not examined: none
+- **Operator / precedence typo**\
+  Reason: The `if`-guards and boolean chains (lines 88–94, 134, 391–394, 641, 696) use the intended connectives; `/=` vs `=/=` at line 134/391 is immaterial because the operands are atoms.\
+  Axes examined: atom conditions, integer/float exact-vs-coerced equality, guard `;`/`,` partitions | Not examined: none\
   Basis: verified
 
-- **Missing clause / catch-all**
-  Reason: `translate/3` ends in an `Other` fall-through (line 301); the `if` in `super` and `case` dispatches cover the shapes the expander emits; literal/term paths are total.
-  Axes examined: scalar, 2-tuple, 3-tuple non-remote, list, map, empty list | Not examined: none
+- **Missing clause / catch-all**\
+  Reason: `translate/3` ends in an `Other` fall-through (line 301); the `if` in `super` and `case` dispatches cover the shapes the expander emits; literal/term paths are total.\
+  Axes examined: scalar, 2-tuple, 3-tuple non-remote, list, map, empty list | Not examined: none\
   Basis: verified
 
-- **Wrong atom / wrong symbol**
-  Reason: BIF/module/atom names in the reorder table and rewrites (`erlang:element`, `maps:put`, `map_field_exact`/`map_field_assoc`, `__duration__!`, `__to_existing_atom__`) are consistent with their Erlang targets and Elixir field names.
-  Axes examined: reorder targets, map-field record tags, struct key `__struct__` | Not examined: none
+- **Wrong atom / wrong symbol**\
+  Reason: BIF/module/atom names in the reorder table and rewrites (`erlang:element`, `maps:put`, `map_field_exact`/`map_field_assoc`, `__duration__!`, `__to_existing_atom__`) are consistent with their Erlang targets and Elixir field names.\
+  Axes examined: reorder targets, map-field record tags, struct key `__struct__` | Not examined: none\
   Basis: verified
 
-- **State / accumulator threading error**
-  Reason: `St0/St1` chains verified in `=`, `translate_map`, `translate_with_do`, and the `lists:member`/`evaluate_first` optimizations; discarded states are provably empty-of-effects for the literal paths.
-  Axes examined: var-first vs expr-first args, literal-only lists, nested map key/value extra flags | Not examined: none
+- **State / accumulator threading error**\
+  Reason: `St0/St1` chains verified in `=`, `translate_map`, `translate_with_do`, and the `lists:member`/`evaluate_first` optimizations; discarded states are provably empty-of-effects for the literal paths.\
+  Axes examined: var-first vs expr-first args, literal-only lists, nested map key/value extra flags | Not examined: none\
   Basis: verified
 
-- **Off-by-one / wrong arithmetic**
-  Reason: `increment/2` (lines 763–764) correctly maps Elixir 0-based `elem`/`put_elem`/`insert_at`/`delete_at` to Erlang 1-based `element`/`setelement`/… ; `optimize_list_membership` bound (≤33 elements) is a cap, not a boundary error.
-  Axes examined: literal integer index, non-literal index, list length 0/1/33/34 | Not examined: none
+- **Off-by-one / wrong arithmetic**\
+  Reason: `increment/2` (lines 763–764) correctly maps Elixir 0-based `elem`/`put_elem`/`insert_at`/`delete_at` to Erlang 1-based `element`/`setelement`/… ; `optimize_list_membership` bound (≤33 elements) is a cap, not a boundary error.\
+  Axes examined: literal integer index, non-literal index, list length 0/1/33/34 | Not examined: none\
   Basis: verified
 
-- **Contract violation**
-  Reason: Every export returns the documented `{ErlAST, State}` (or, for `no_parens_remote`, `{ok,_}`/`{error,_}`) shape across all clauses.
-  Axes examined: each export's clause set | Not examined: none
+- **Contract violation**\
+  Reason: Every export returns the documented `{ErlAST, State}` (or, for `no_parens_remote`, `{ok,_}`/`{error,_}`) shape across all clauses.\
+  Axes examined: each export's clause set | Not examined: none\
   Basis: verified
 
-- **Crash on stray / unexpected input**
-  Reason: Crashes only occur on AST shapes the expander cannot emit (contract violations, out of scope); literal fall-throughs absorb arbitrary terms.
-  Axes examined: raw scalars/maps/tuples/lists through `translate`, `no_parens_remote` on all term kinds | Not examined: none
+- **Crash on stray / unexpected input**\
+  Reason: Crashes only occur on AST shapes the expander cannot emit (contract violations, out of scope); literal fall-throughs absorb arbitrary terms.\
+  Axes examined: raw scalars/maps/tuples/lists through `translate`, `no_parens_remote` on all term kinds | Not examined: none\
   Basis: verified
 
-- **Resource leak on error path**
-  Reason: No files, ETS tables, processes, or monitors are created in this module; only pure AST transformation. `try/catch _:_` blocks (lines 713, 725) fall back to `none` without acquiring resources.
-  Axes examined: try/catch fallbacks | Not examined: none
+- **Resource leak on error path**\
+  Reason: No files, ETS tables, processes, or monitors are created in this module; only pure AST transformation. `try/catch _:_` blocks (lines 713, 725) fall back to `none` without acquiring resources.\
+  Axes examined: try/catch fallbacks | Not examined: none\
   Basis: verified
 
-- **Silent corruption**
-  Reason: `maps:merge`/`lists:member`/`to_existing_atom`/`to_string` rewrites preserve observable semantics and evaluation order as traced above.
-  Axes examined: duplicate map keys, exact-equality membership, effectful-arg ordering | Not examined: none
+- **Silent corruption**\
+  Reason: `maps:merge`/`lists:member`/`to_existing_atom`/`to_string` rewrites preserve observable semantics and evaluation order as traced above.\
+  Axes examined: duplicate map keys, exact-equality membership, effectful-arg ordering | Not examined: none\
   Basis: verified
 
-- **Infinite loop / hang**
-  Reason: All recursion (`translate_list`, `build_list`, `translate_block`, `build_cond_clauses`, `extract_bit_type`) decreases on a shrinking list/tree; no `receive`/blocking constructs.
-  Axes examined: empty/single/multi-element lists, nested blocks | Not examined: none
+- **Infinite loop / hang**\
+  Reason: All recursion (`translate_list`, `build_list`, `translate_block`, `build_cond_clauses`, `extract_bit_type`) decreases on a shrinking list/tree; no `receive`/blocking constructs.\
+  Axes examined: empty/single/multi-element lists, nested blocks | Not examined: none\
   Basis: verified
 
-- **Quadratic-where-linear**
-  Reason: `Pairs1 ++ Pairs2` (line 626) is a one-shot fusion of two literal maps, not a loop; accumulators use `[H|Acc]` + `lists:reverse` (lines 69, 515, 808). `Do ++ After` (line 180) and `Else ++ [RaiseClause]` (line 437) are single small concatenations.
-  Axes examined: accumulator idioms, per-call concatenations | Not examined: none
+- **Quadratic-where-linear**\
+  Reason: `Pairs1 ++ Pairs2` (line 626) is a one-shot fusion of two literal maps, not a loop; accumulators use `[H|Acc]` + `lists:reverse` (lines 69, 515, 808). `Do ++ After` (line 180) and `Else ++ [RaiseClause]` (line 437) are single small concatenations.\
+  Axes examined: accumulator idioms, per-call concatenations | Not examined: none\
   Basis: verified
 
-- **Repeated work**
-  Reason: No pattern compilation, BEAM scanning, or repeated expensive calls; each node is translated once.
-  Axes examined: translate call counts per node | Not examined: none
+- **Repeated work**\
+  Reason: No pattern compilation, BEAM scanning, or repeated expensive calls; each node is translated once.\
+  Axes examined: translate call counts per node | Not examined: none\
   Basis: verified
 
-- **Dead / unreachable code**
-  Reason: The `extract_bit_type({Other,_,[]}, ...)` clause (line 558) is documented legacy support for pre-1.14 debug_info and is intentionally retained; all other clauses are reachable from documented AST shapes.
-  Axes examined: legacy bit-type list form, reorder table entries | Not examined: none
+- **Dead / unreachable code**\
+  Reason: The `extract_bit_type({Other,_,[]}, ...)` clause (line 558) is documented legacy support for pre-1.14 debug_info and is intentionally retained; all other clauses are reachable from documented AST shapes.\
+  Axes examined: legacy bit-type list form, reorder table entries | Not examined: none\
   Basis: verified
 
-- **Documented behaviour mismatch**
-  Reason: Deprecation warnings and return values in `no_parens_remote/2`/`parens_map_field/2` match their doc comments; rewrite optimizations preserve the semantics of the functions they replace.
-  Axes examined: `no_parens_remote` return contract, warn_once behaviour | Not examined: none
+- **Documented behaviour mismatch**\
+  Reason: Deprecation warnings and return values in `no_parens_remote/2`/`parens_map_field/2` match their doc comments; rewrite optimizations preserve the semantics of the functions they replace.\
+  Axes examined: `no_parens_remote` return contract, warn_once behaviour | Not examined: none\
   Basis: verified
 
-- **Race condition / shared mutable state**
-  Reason: Pure functional translation with no shared/process state.
-  Axes examined: module-level state usage | Not examined: none
+- **Race condition / shared mutable state**\
+  Reason: Pure functional translation with no shared/process state.\
+  Axes examined: module-level state usage | Not examined: none\
   Basis: verified
 
-- **Wrong scope / order of operations**
-  Reason: `evaluate_first` and the reorder closures preserve Elixir left-to-right evaluation order even after argument permutation.
-  Axes examined: var-first vs expr-first, effectful non-first args | Not examined: none
+- **Wrong scope / order of operations**\
+  Reason: `evaluate_first` and the reorder closures preserve Elixir left-to-right evaluation order even after argument permutation.\
+  Axes examined: var-first vs expr-first, effectful non-first args | Not examined: none\
   Basis: verified
 
-- **Encoding / unicode mishandling**
-  Reason: Binary bitstring literals use `binary_to_list/1` only for non-UTF types and `elixir_utils:characters_to_list/1` for UTF types (lines 517–527), matching `elixir_erl:elixir_to_erl`'s documented rationale.
-  Axes examined: utf vs binary/bitstring bit types | Not examined: none
+- **Encoding / unicode mishandling**\
+  Reason: Binary bitstring literals use `binary_to_list/1` only for non-UTF types and `elixir_utils:characters_to_list/1` for UTF types (lines 517–527), matching `elixir_erl:elixir_to_erl`'s documented rationale.\
+  Axes examined: utf vs binary/bitstring bit types | Not examined: none\
   Basis: verified
 
 ### Did I verify this?

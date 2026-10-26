@@ -50,7 +50,7 @@ Insert reports `true`, membership `true`, a second insert reports `false`, delet
 
 ## Ruled out
 
-- **Table-not-created precondition (`ArgumentError` before `start_link`)** — the first pass hedged this as "outside this file's control." Verified: `mix.ex:464` places `Mix.TasksServer` in the `Mix.Supervisor` children list started by `Mix.start/0` (via `Application.ensure_all_started(:mix)`, `mix.ex:455-467`), before any task dispatch occurs. All five functions would raise `ArgumentError` from `:ets` only if called before `start_link/1`, which the supervision tree precludes for the normal Mix run. This is a genuine contract precondition satisfied by the boot sequence, not a bug in the documented API surface.
+- **Table-not-created precondition (`ArgumentError` before `start_link`)** — the first pass hedged this as "outside this file's control." Verified: `mix.ex:464` places `Mix.TasksServer` in the `Mix.Supervisor` children list started by `Mix.start/0` (via `Application.ensure_all_started(:mix)`, `mix.ex:455-467`), before any task dispatch occurs. All five functions would raise `ArgumentError` from `:ets` only if called before `start_link/1`, which the supervision tree precludes for the normal Mix run. This is a genuine contract precondition satisfied by the boot sequence, not a bug in the documented API surface.\
   Axes examined: caller key shape (task.ex), table-creation ordering (mix.ex supervision), ETS insert/member/delete semantics (executed) | Not examined: none.
 
 ## Did I verify this?

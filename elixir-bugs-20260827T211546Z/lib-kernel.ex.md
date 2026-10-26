@@ -31,7 +31,7 @@ The file is byte-for-byte identical to upstream Elixir `main` and is almost enti
 - **Class** — Documentation mismatch (failing doctest).
 - **Impact** — Anyone running `doctest Kernel` (or copying the documented example expecting that exact message) sees a failure/mismatch. The operators themselves behave correctly — only the documented error-message text is wrong — so functional impact is nil; the cost is a red doctest and misleading docs.
 - **Evidence** — `verified`.
-  - Actual message: `elixir -e 'try do Code.eval_string("42 or false") rescue e -> IO.inspect(Exception.message(e)) end'` →
+  - Actual message: `elixir -e 'try do Code.eval_string("42 or false") rescue e -> IO.inspect(Exception.message(e)) end'` →\
     `"expected a boolean on left-side of \"or\", got:\n\n    42\n"`
   - Doctest run via ExUnit (`doctest Kernel, only: [or: 2, and: 2]`) →
     ```

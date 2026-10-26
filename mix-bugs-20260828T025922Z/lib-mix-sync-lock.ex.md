@@ -52,23 +52,23 @@ Re-review changes vs. first pass:
 
 ### Ruled out
 
-- **`await_close/1` `CaseClauseError` on `{:ok, data}`** (`lock.ex:342`).
-  Verdict: **verified (executed).** Upgraded from hedged/reasoned in the first pass.
+- **`await_close/1` `CaseClauseError` on `{:ok, data}`** (`lock.ex:342`).\
+  Verdict: **verified (executed).** Upgraded from hedged/reasoned in the first pass.\
   `await_close/1` handles `{:error, :closed}` and `{:error, _other}` but not `{:ok, _}`. I tested both axes against a live loopback socket pair (`/tmp/recv0.exs`, `/tmp/recv0b.exs`):
   - *Owner sends only the 7-byte probe, then closes* (the real `accept_loop` behavior): after `await_probe_data` consumes the 7 bytes, `recv(socket, 0)` **blocked ~408 ms and returned `{:error, :closed}`** — handled cleanly.
-  - *Owner sends extra bytes after the probe*: `recv(socket, 0)` returned `{:ok, "EXTRA"}` — which would raise `CaseClauseError`.
-  The `{:ok, data}` path is therefore reachable **only if an accepted socket ever carries more than the probe**. Reading `accept_loop/1` (lines 232–245): it does `:gen_tcp.send(socket, @probe_data)` exactly once and then loops back to `accept/1` without ever referencing that accepted `socket` again — no code path writes a second time on an accepted socket. So the triggering input is never produced.
+  - *Owner sends extra bytes after the probe*: `recv(socket, 0)` returned `{:ok, "EXTRA"}` — which would raise `CaseClauseError`.\
+  The `{:ok, data}` path is therefore reachable **only if an accepted socket ever carries more than the probe**. Reading `accept_loop/1` (lines 232–245): it does `:gen_tcp.send(socket, @probe_data)` exactly once and then loops back to `accept/1` without ever referencing that accepted `socket` again — no code path writes a second time on an accepted socket. So the triggering input is never produced.\
   Axes examined: post-probe extra bytes present (executed), post-probe extra bytes absent + close (executed), owner write-count (code fact from lines 232–245). Not examined: none.
 
-- **`take_over`/`switch_file_replace!` concurrent double-writer to `lock_0`** (`lock.ex:319`, `:326`, `:421`).
-  Verdict: **asserted (reasoned, not executed).**
-  The atomic-replace correctness of `switch_file_replace!` on `lock_0` rests on a single-writer invariant. Reasoning from the code: `lock_0` is created once via an atomically-exclusive `File.ln` (eexist on collision) and is never removed. A second process that finds `lock_0` stale links `lock_1`; any third process probing `lock_1` connects to the live socket of the `lock_1` holder and blocks in `{:taken} → await_close`. The `lock_N` holder keeps its listen socket open for the whole lock lifetime, and both `take_over` (replace `lock_0` → remove `port_*` → remove `lock_1+`) and `unlock` (replace `lock_0`, *then* close socket in the `after`) complete their `lock_0` write before releasing waiters. So only the current holder writes `lock_0` at any instant — by construction.
+- **`take_over`/`switch_file_replace!` concurrent double-writer to `lock_0`** (`lock.ex:319`, `:326`, `:421`).\
+  Verdict: **asserted (reasoned, not executed).**\
+  The atomic-replace correctness of `switch_file_replace!` on `lock_0` rests on a single-writer invariant. Reasoning from the code: `lock_0` is created once via an atomically-exclusive `File.ln` (eexist on collision) and is never removed. A second process that finds `lock_0` stale links `lock_1`; any third process probing `lock_1` connects to the live socket of the `lock_1` holder and blocks in `{:taken} → await_close`. The `lock_N` holder keeps its listen socket open for the whole lock lifetime, and both `take_over` (replace `lock_0` → remove `port_*` → remove `lock_1+`) and `unlock` (replace `lock_0`, *then* close socket in the `after`) complete their `lock_0` write before releasing waiters. So only the current holder writes `lock_0` at any instant — by construction.\
   Axes examined: static ordering of `take_over`/`unlock`/`await_close` (code reading). **Not examined: live multi-OS-process race execution, including the ephemeral-port-reuse window the module documents (lines 56–67).** I did not run a real multi-process stress harness; a differential/axis execution that would falsify the invariant was not performed, so this stays `asserted`. (Note the module itself mitigates the port-reuse axis via the `@probe_data` handshake in `await_probe_data/1`, so no novel finding is claimed.)
 
-- **Accepted-socket accumulation in `accept_loop`** (`lock.ex:232`).
+- **Accepted-socket accumulation in `accept_loop`** (`lock.ex:232`).\
   Verdict: asserted (reasoned). Accepted prober sockets are never explicitly closed, but they are tied to the linked accept process and closed when `unlock` closes the listen socket (`lock.ex:361` + comment at :359–360); bounded by lock lifetime. Not examined: long-lived-lock socket-count growth under sustained prober churn (not executed). Stays asserted; no leak claimed under normal lifetime.
 
-- **`grab_lock` unbounded `n` recursion** (`lock.ex:202`).
+- **`grab_lock` unbounded `n` recursion** (`lock.ex:202`).\
   Verdict: asserted (reasoned). Walks `lock_1, lock_2, …` past stale entries with no cap, but each step consumes a real stale/held file and converges to the first free slot; no infinite loop under valid filesystem state. Not examined: adversarial filesystem where entries are re-created faster than consumed (not executed). Stays asserted.
 
 - **Atom-table growth / `to_unsafe_atom`** — none present in this file; the threat-model concern lives in `Mix.CLI`/`Mix.State`, not here. Verified by reading the full file (no `to_atom`/`to_existing_atom`/`to_unsafe_atom` call sites). Not examined: none.

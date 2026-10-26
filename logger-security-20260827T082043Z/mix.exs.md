@@ -31,11 +31,11 @@ The complete sink inventory and its disposition:
 - The one live call was verified behaviorally by execution; the remaining items are static literals whose safety is evident by inspection and require no execution.
 
 ### Ruled out
-- **Compile-time execution via `System.version/0`** — pure accessor returning the local Elixir version; no external/untrusted input, no file/network access. Not a finding.
+- **Compile-time execution via `System.version/0`** — pure accessor returning the local Elixir version; no external/untrusted input, no file/network access. Not a finding.\
   Axes examined: return type (binary), external-input reachability (none — value originates in the Elixir install, not from build inputs), file/network side effects (none). | Not examined: none.
-- **Shared-state write via `env` defaults** — values are static literals, not externally derived; cannot be used by one caller to poison another. Not a finding.
+- **Shared-state write via `env` defaults** — values are static literals, not externally derived; cannot be used by one caller to poison another. Not a finding.\
   Axes examined: literal-ness of each of the 14 values (all compile-time constants), external-derivation (none), magnitude safety of the numeric thresholds. | Not examined: none.
-- **Behaviour/atom-dispatch via `mod`/`registered`/`translators`** — all targets are literal atoms present at compile time; no `String.to_atom`/`Module.concat` on external bytes. Not a finding.
+- **Behaviour/atom-dispatch via `mod`/`registered`/`translators`** — all targets are literal atoms present at compile time; no `String.to_atom`/`Module.concat` on external bytes. Not a finding.\
   Axes examined: atom provenance (all literal), dynamic-atom-creation from bytes (none present). | Not examined: none.
 
 ## Did I verify this?

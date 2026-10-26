@@ -38,89 +38,89 @@ The module faithfully mirrors upstream Elixir alias/concat/expand logic. The fir
 
 ### Ruled out
 
-**Operator / precedence typo**
-Reason: guards are simple single-condition comparisons (`FirstLetter >= $A, FirstLetter =< $Z`, `is_atom`, `H /= nil`); the only comma-guard (lines 44/58) is a range test whose `,`-conjunction is correct, and there are no `;`-alternation guards to mis-partition.
-Axes examined: uppercase-first alias, lowercase-first, empty remainder, boolean-as-atom | Not examined: none
+**Operator / precedence typo**\
+Reason: guards are simple single-condition comparisons (`FirstLetter >= $A, FirstLetter =< $Z`, `is_atom`, `H /= nil`); the only comma-guard (lines 44/58) is a range test whose `,`-conjunction is correct, and there are no `;`-alternation guards to mis-partition.\
+Axes examined: uppercase-first alias, lowercase-first, empty remainder, boolean-as-atom | Not examined: none\
 Basis: verified
 
-**Missing clause / catch-all**
-Reason: every `case` (alias/6 result switch, expand/4 meta switch, lookup/3, ensure_loaded) has an explicit fall-through or covers all shapes the in-file producers emit.
-Axes examined: `as` absent/false/true/atom/non-atom, meta with/without `alias` and `counter` keys, lookup hit/miss/counter-mismatch | Not examined: none
+**Missing clause / catch-all**\
+Reason: every `case` (alias/6 result switch, expand/4 meta switch, lookup/3, ensure_loaded) has an explicit fall-through or covers all shapes the in-file producers emit.\
+Axes examined: `as` absent/false/true/atom/non-atom, meta with/without `alias` and `counter` keys, lookup hit/miss/counter-mismatch | Not examined: none\
 Basis: verified
 
-**Wrong atom / wrong symbol**
-Reason: error atoms produced (`invalid_alias_for_as`, `nested_alias`, `not_alias`, `invalid_alias_module`, `circular_module`, etc.) each have a matching `format_error/1` clause; no key/atom drift.
-Axes examined: each error tuple vs each format_error head | Not examined: none
+**Wrong atom / wrong symbol**\
+Reason: error atoms produced (`invalid_alias_for_as`, `nested_alias`, `not_alias`, `invalid_alias_module`, `circular_module`, etc.) each have a matching `format_error/1` clause; no key/atom drift.\
+Axes examined: each error tuple vs each format_error head | Not examined: none\
 Basis: verified
 
-**State / accumulator threading error**
-Reason: `alias/6` and `expand/*` thread the env `E`/accumulator immutably and return the updated map/atom; `last/2` and `do_concat/2` accumulators build in correct order (hand-traced "Elixir.Foo.Bar" and confirmed by executing `concat([foo,bar]) => 'Elixir.foo.bar'`).
-Axes examined: single-segment, multi-segment, empty-tail alias expansion | Not examined: none
+**State / accumulator threading error**\
+Reason: `alias/6` and `expand/*` thread the env `E`/accumulator immutably and return the updated map/atom; `last/2` and `do_concat/2` accumulators build in correct order (hand-traced "Elixir.Foo.Bar" and confirmed by executing `concat([foo,bar]) => 'Elixir.foo.bar'`).\
+Axes examined: single-segment, multi-segment, empty-tail alias expansion | Not examined: none\
 Basis: verified
 
-**Off-by-one / wrong arithmetic**
-Reason: no index or length arithmetic; `last/2` splits on the `$.` delimiter, not on a computed offset.
-Axes examined: trailing segment extraction across 1/2/3-segment names | Not examined: none
+**Off-by-one / wrong arithmetic**\
+Reason: no index or length arithmetic; `last/2` splits on the `$.` delimiter, not on a computed offset.\
+Axes examined: trailing segment extraction across 1/2/3-segment names | Not examined: none\
 Basis: verified
 
-**Contract violation**
-Reason: `alias/6` always returns one of `{ok,_,_}` / `{error,_}`; `expand/4` returns list-or-atom per its comment; `concat`/`safe_concat` return atoms.
-Axes examined: all documented return shapes per export | Not examined: none
+**Contract violation**\
+Reason: `alias/6` always returns one of `{ok,_,_}` / `{error,_}`; `expand/4` returns list-or-atom per its comment; `concat`/`safe_concat` return atoms.\
+Axes examined: all documented return shapes per export | Not examined: none\
 Basis: verified
 
-**Crash on stray / unexpected input**
-Reason: PROMOTED to Finding 1 above. The charlist axis was executed (`concat(["Foo"])` and `concat([foo,"Bar"])` both raise `function_clause` in `do_concat/2`), and the in-folder callers `elixir_expand.erl:1041`/`1088` feed macro-constructible `__aliases__` segment lists, so the "unreachable via documented API" dismissal — which depended on an unread `lib/module.ex` typespec — no longer holds as a dismissal.
-Axes examined: empty list, nil element, empty atom, non-"Elixir" binary, `<<"ElixirFoo">>`, bare charlist element (executed) | Not examined: none
+**Crash on stray / unexpected input**\
+Reason: PROMOTED to Finding 1 above. The charlist axis was executed (`concat(["Foo"])` and `concat([foo,"Bar"])` both raise `function_clause` in `do_concat/2`), and the in-folder callers `elixir_expand.erl:1041`/`1088` feed macro-constructible `__aliases__` segment lists, so the "unreachable via documented API" dismissal — which depended on an unread `lib/module.ex` typespec — no longer holds as a dismissal.\
+Axes examined: empty list, nil element, empty atom, non-"Elixir" binary, `<<"ElixirFoo">>`, bare charlist element (executed) | Not examined: none\
 Basis: promoted to finding (see Finding 1)
 
-**Resource leak on error path**
-Reason: module allocates no files/ETS/processes/monitors; `wait_for_module` delegates to `Kernel.ErrorHandler` (another module) and returns a plain atom.
-Axes examined: n/a (no resources acquired here) | Not examined: none
+**Resource leak on error path**\
+Reason: module allocates no files/ETS/processes/monitors; `wait_for_module` delegates to `Kernel.ErrorHandler` (another module) and returns a plain atom.\
+Axes examined: n/a (no resources acquired here) | Not examined: none\
 Basis: verified
 
-**Silent corruption**
-Reason: `do_concat`/`to_partial`/`last` outputs traced to correct binaries for representative inputs (executed `concat([<<"Foo">>,<<"Bar">>]) => 'Elixir.Foo.Bar'`); `lookup/3` counter-mismatch correctly returns not-found rather than a wrong alias.
-Axes examined: macro-alias counter match/mismatch, regular-alias atom value, "Elixir." prefix stripping | Not examined: none
+**Silent corruption**\
+Reason: `do_concat`/`to_partial`/`last` outputs traced to correct binaries for representative inputs (executed `concat([<<"Foo">>,<<"Bar">>]) => 'Elixir.Foo.Bar'`); `lookup/3` counter-mismatch correctly returns not-found rather than a wrong alias.\
+Axes examined: macro-alias counter match/mismatch, regular-alias atom value, "Elixir." prefix stripping | Not examined: none\
 Basis: verified
 
-**Infinite loop / hang**
-Reason: all recursion (`do_concat`, `last`, `expand`) consumes a list head per step toward `[]`; no `receive`/`gen_server` loop in this module.
-Axes examined: list reduction termination | Not examined: none
+**Infinite loop / hang**\
+Reason: all recursion (`do_concat`, `last`, `expand`) consumes a list head per step toward `[]`; no `receive`/`gen_server` loop in this module.\
+Axes examined: list reduction termination | Not examined: none\
 Basis: verified
 
-**Quadratic-where-linear / Repeated work**
-Reason: accumulators use binary append into a growing `Acc` (`do_concat/2`) which is amortized-linear on the BEAM, and `[H|Acc]` prepend in `last/2`; no `++` in a loop, no per-call pattern recompilation.
-Axes examined: long alias chains | Not examined: none
+**Quadratic-where-linear / Repeated work**\
+Reason: accumulators use binary append into a growing `Acc` (`do_concat/2`) which is amortized-linear on the BEAM, and `[H|Acc]` prepend in `last/2`; no `++` in a loop, no per-call pattern recompilation.\
+Axes examined: long alias chains | Not examined: none\
 Basis: verified
 
-**Dead / unreachable code**
-Reason: each clause is reachable — traced triggers for every `expand_as` and `do_concat` head.
-Axes examined: all clause heads | Not examined: none
+**Dead / unreachable code**\
+Reason: each clause is reachable — traced triggers for every `expand_as` and `do_concat` head.\
+Axes examined: all clause heads | Not examined: none\
 Basis: verified
 
-**Documented behaviour mismatch**
-Reason: PROMOTED to Finding 1 above. The lines 172–173 "or lists" comment vs the `do_concat/2` crash-on-charlist is now confirmed in-file by execution, not asserted. This is no longer a bare caveat.
-Axes examined: comment vs clause coverage for concat, charlist element behaviour (executed) | Not examined: none
+**Documented behaviour mismatch**\
+Reason: PROMOTED to Finding 1 above. The lines 172–173 "or lists" comment vs the `do_concat/2` crash-on-charlist is now confirmed in-file by execution, not asserted. This is no longer a bare caveat.\
+Axes examined: comment vs clause coverage for concat, charlist element behaviour (executed) | Not examined: none\
 Basis: promoted to finding (see Finding 1)
 
-**Race condition / shared mutable state**
-Reason: module is stateless library code run in the caller's process; env `E` is an immutable map, no ETS/process state mutated here.
-Axes examined: n/a | Not examined: none
+**Race condition / shared mutable state**\
+Reason: module is stateless library code run in the caller's process; env `E` is an immutable map, no ETS/process state mutated here.\
+Axes examined: n/a | Not examined: none\
 Basis: verified
 
-**Wrong scope / order of operations**
-Reason: trace side-effects (lines 17, 30, 123) occur after the successful branch is selected and before returning the updated env, matching intent.
-Axes examined: alias store vs trace ordering | Not examined: none
+**Wrong scope / order of operations**\
+Reason: trace side-effects (lines 17, 30, 123) occur after the successful branch is selected and before returning the updated env, matching intent.\
+Axes examined: alias store vs trace ordering | Not examined: none\
 Basis: verified
 
-**Encoding / unicode mishandling**
-Reason: `concat`/`safe_concat` use `utf8` consistently for both `atom_to_binary` and `binary_to_atom`; no latin1 default.
-Axes examined: utf8 round-trip on atom↔binary | Not examined: none
+**Encoding / unicode mishandling**\
+Reason: `concat`/`safe_concat` use `utf8` consistently for both `atom_to_binary` and `binary_to_atom`; no latin1 default.\
+Axes examined: utf8 round-trip on atom↔binary | Not examined: none\
 Basis: verified
 
-**Unclassified**
-Reason: no residual file-specific anomaly after reading all 277 lines.
-Axes examined: full-file read | Not examined: none
+**Unclassified**\
+Reason: no residual file-specific anomaly after reading all 277 lines.\
+Axes examined: full-file read | Not examined: none\
 Basis: verified
 
 ### Did I verify this?

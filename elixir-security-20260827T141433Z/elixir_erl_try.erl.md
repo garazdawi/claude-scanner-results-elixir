@@ -25,55 +25,55 @@ The file's entire job is to build Erlang abstract-format tuples from an already-
 
 ### Ruled out
 
-**Incomplete `case Args of [X] -> …; [X, Y] -> … end` (each_clause/2, lines 33-36) — potential `case_clause` DoS.**
-Reason: A catch clause reaching here always has exactly 1 or 2 args because `elixir_clauses:expand_catch/4` errors on any other arity before translation; both surviving arities are matched.
-Axes examined: arg-count 0 / 1 / 2 / 3+ via parser (`compile_string`), arg-count 3 & rescue-arity 2 via hand-built AST (`eval_quoted`), guard-present vs absent (`extract_splat_guards`) | Not examined: none (debug_info sub-path reasoned: it stores only post-expansion, already-validated clauses, so cannot carry a rejected arity).
+**Incomplete `case Args of [X] -> …; [X, Y] -> … end` (each_clause/2, lines 33-36) — potential `case_clause` DoS.**\
+Reason: A catch clause reaching here always has exactly 1 or 2 args because `elixir_clauses:expand_catch/4` errors on any other arity before translation; both surviving arities are matched.\
+Axes examined: arg-count 0 / 1 / 2 / 3+ via parser (`compile_string`), arg-count 3 & rescue-arity 2 via hand-built AST (`eval_quoted`), guard-present vs absent (`extract_splat_guards`) | Not examined: none (debug_info sub-path reasoned: it stores only post-expansion, already-validated clauses, so cannot carry a rejected arity).\
 Basis: verified.
 
-**Non-exhaustive `each_clause/2` heads (lines 26, 43, 49) — potential `function_clause` DoS.**
-Reason: After expansion a rescue clause is normalised to exactly a variable `{Name,_,Atom}` or an `{in,_,[Var,ListOfAtoms]}` form (`elixir_clauses.erl:453-489`), and catch clauses are tagged `'catch'`; these are precisely the three heads present.
-Axes examined: clause shape var / alias / `in`-list / `in`-underscore / arbitrary-expr / non-list `in` Right / empty `in` list — all via parser and/or `eval_quoted` | Not examined: none.
+**Non-exhaustive `each_clause/2` heads (lines 26, 43, 49) — potential `function_clause` DoS.**\
+Reason: After expansion a rescue clause is normalised to exactly a variable `{Name,_,Atom}` or an `{in,_,[Var,ListOfAtoms]}` form (`elixir_clauses.erl:453-489`), and catch clauses are tagged `'catch'`; these are precisely the three heads present.\
+Axes examined: clause shape var / alias / `in`-list / `in`-underscore / arbitrary-expr / non-list `in` Right / empty `in` list — all via parser and/or `eval_quoted` | Not examined: none.\
 Basis: verified.
 
-**`erl_rescue/5` `is_atom(H)` guard + non-atom `Right` (lines 133, 115) — potential `function_clause` on a non-atom alias.**
-Reason: `Right` is `normalize_rescue`d in the expander to `false` (→ `invalid_rescue_clause` error), `[Atom]`, or a list where `lists:all(is_atom, …)` holds (`elixir_clauses.erl:491-494`), so `erl_rescue` only ever iterates atoms.
-Axes examined: `in` Right = single atom, list of atoms, integer `123`, empty list `[]` — driven via parser and `eval_quoted` | Not examined: none.
+**`erl_rescue/5` `is_atom(H)` guard + non-atom `Right` (lines 133, 115) — potential `function_clause` on a non-atom alias.**\
+Reason: `Right` is `normalize_rescue`d in the expander to `false` (→ `invalid_rescue_clause` error), `[Atom]`, or a list where `lists:all(is_atom, …)` holds (`elixir_clauses.erl:491-494`), so `erl_rescue` only ever iterates atoms.\
+Axes examined: `in` Right = single atom, list of atoms, integer `123`, empty list `[]` — driven via parser and `eval_quoted` | Not examined: none.\
 Basis: verified (ran `e in 123` → `CompileError`, never reaches this module).
 
-**`erl_rescue_stacktrace_for(_, _, 'Elixir.ErlangError') -> error(badarg)` (lines 91-93) — deliberate crash / dead defensive code.**
-Reason: `dynamic_normalize/3` is only ever called with `?REQUIRES_STACKTRACE` (no `ErlangError`) or `Some` ⊆ `?REQUIRES_STACKTRACE`; `ErlangError` is filtered to the `lists:member` `true` branch in `normalize_rescue/5` (lines 60-62) before this function is reached, so the crash clause never fires and its unreachability carries no security gap (it is an internal assertion, not a bypassed control).
-Axes examined: `ErlangError` present alone, mixed with stacktrace-requiring aliases, and with non-requiring aliases — traced through `normalize_rescue`'s partition | Not examined: none.
+**`erl_rescue_stacktrace_for(_, _, 'Elixir.ErlangError') -> error(badarg)` (lines 91-93) — deliberate crash / dead defensive code.**\
+Reason: `dynamic_normalize/3` is only ever called with `?REQUIRES_STACKTRACE` (no `ErlangError`) or `Some` ⊆ `?REQUIRES_STACKTRACE`; `ErlangError` is filtered to the `lists:member` `true` branch in `normalize_rescue/5` (lines 60-62) before this function is reached, so the crash clause never fires and its unreachability carries no security gap (it is an internal assertion, not a bypassed control).\
+Axes examined: `ErlangError` present alone, mixed with stacktrace-requiring aliases, and with non-requiring aliases — traced through `normalize_rescue`'s partition | Not examined: none.\
 Basis: verified.
 
-**`dynamic_normalize/3` requires a non-empty list (line 75) — potential `function_clause`.**
-Reason: Its two call sites pass the non-empty constant `?REQUIRES_STACKTRACE` or `Some`, and the empty case is handled earlier by the `{[], _} -> []` branch (line 66) so `Some` is never empty at the `{Some, _}` call.
-Axes examined: empty vs non-empty stacktrace-alias partition | Not examined: none.
+**`dynamic_normalize/3` requires a non-empty list (line 75) — potential `function_clause`.**\
+Reason: Its two call sites pass the non-empty constant `?REQUIRES_STACKTRACE` or `Some`, and the empty case is handled earlier by the `{[], _} -> []` branch (line 66) so `Some` is never empty at the `{Some, _}` call.\
+Axes examined: empty vs non-empty stacktrace-alias partition | Not examined: none.\
 Basis: verified.
 
-**`erl_rescue_guard_for/3` generated-guard correctness + catch-all `false` (lines 143-226) — could a wrong guard catch the wrong exception?**
-Reason: Each clause emits a structural guard (`tuple_size`/`element(1,…)`/`==`) matching the corresponding Erlang error term, faithfully reproducing what the user wrote (`rescue e in SomeError`); the catch-all `false` correctly means "no Erlang-level guard, use the Elixir struct guard." The mapping is a language-semantics contract, not an attacker-influenced trust decision, and I confirmed a normal multi-alias rescue behaves correctly at runtime.
-Axes examined: multi-alias rescue, Erlang-error rescue, struct rescue (ran `t1.exs`) | Not examined: exhaustive per-exception-module guard equivalence (correctness, not security).
+**`erl_rescue_guard_for/3` generated-guard correctness + catch-all `false` (lines 143-226) — could a wrong guard catch the wrong exception?**\
+Reason: Each clause emits a structural guard (`tuple_size`/`element(1,…)`/`==`) matching the corresponding Erlang error term, faithfully reproducing what the user wrote (`rescue e in SomeError`); the catch-all `false` correctly means "no Erlang-level guard, use the Elixir struct guard." The mapping is a language-semantics contract, not an attacker-influenced trust decision, and I confirmed a normal multi-alias rescue behaves correctly at runtime.\
+Axes examined: multi-alias rescue, Erlang-error rescue, struct rescue (ran `t1.exs`) | Not examined: exhaustive per-exception-module guard equivalence (correctness, not security).\
 Basis: verified (for the security-relevant claim that no guard is attacker-tunable).
 
-**Generated-code construction / "injection" via `Alias` splicing (`rescue_guards` lines 118-121, `build_clause` line 125) — code-execution class.**
-Reason: `Alias` values are spliced only into `==`/`is_map_key` comparison operands of a programmer-shaped guard whose operator atoms are all literals from `erl/2`; an attacker choosing the alias only chooses which exception module the clause matches, exactly as the source `rescue e in Module` intends — no operator or callable is derived from input.
-Axes examined: alias identity/value into guard operands, operator-atom provenance (all literals) | Not examined: none.
+**Generated-code construction / "injection" via `Alias` splicing (`rescue_guards` lines 118-121, `build_clause` line 125) — code-execution class.**\
+Reason: `Alias` values are spliced only into `==`/`is_map_key` comparison operands of a programmer-shaped guard whose operator atoms are all literals from `erl/2`; an attacker choosing the alias only chooses which exception module the clause matches, exactly as the source `rescue e in Module` intends — no operator or callable is derived from input.\
+Axes examined: alias identity/value into guard operands, operator-atom provenance (all literals) | Not examined: none.\
 Basis: verified.
 
-**Metadata handling `?ann(Meta)` / `?generated(Meta)` (lines 38, 76, 83-87, etc.) — untrusted line/column metadata.**
-Reason: These macros extract/annotate line info via `elixir_erl:get_ann`/`elixir_utils:generated`; a hostile line number in caller-supplied AST at worst produces a self-inflicted compile-time error in the caller's own `eval_quoted`, crossing no trust boundary and affecting no other tenant.
-Axes examined: line as integer / missing / generated flag | Not examined: extreme/negative line integers via `eval_quoted` (bounded, caller-self-inflicted only).
-Basis: asserted.
+**Metadata handling `?ann(Meta)` / `?generated(Meta)` (lines 38, 76, 83-87, etc.) — untrusted line/column metadata.**\
+Reason: These macros extract/annotate line info via `elixir_erl:get_ann`/`elixir_utils:generated`; a hostile line number in caller-supplied AST at worst produces a self-inflicted compile-time error in the caller's own `eval_quoted`, crossing no trust boundary and affecting no other tenant.\
+Axes examined: line as integer / missing / generated flag | Not examined: extreme/negative line integers via `eval_quoted` (bounded, caller-self-inflicted only).\
+Basis: asserted.\
 Depends on: `elixir_erl.erl` — `get_ann/1` tolerates or cleanly errors on out-of-range line metadata without a cross-caller effect.
 
-**Resource consumption — `reduce_clauses/5`, `erl_rescue/5`, `dynamic_normalize` `foldl`, `rescue_guards` comprehension (lines 20, 133, 79, 118).**
-Reason: Every loop is a single linear pass over the source's clause/alias list with no nested re-walk or quadratic accumulator; total work is bounded by source size, which is the inherent cost of compiling any source, not an amplification in this file.
-Axes examined: clause-count and alias-count scaling (linear), no `<<Acc/binary,…>>`/list-reverse-in-loop patterns present | Not examined: none.
+**Resource consumption — `reduce_clauses/5`, `erl_rescue/5`, `dynamic_normalize` `foldl`, `rescue_guards` comprehension (lines 20, 133, 79, 118).**\
+Reason: Every loop is a single linear pass over the source's clause/alias list with no nested re-walk or quadratic accumulator; total work is bounded by source size, which is the inherent cost of compiling any source, not an amplification in this file.\
+Axes examined: clause-count and alias-count scaling (linear), no `<<Acc/binary,…>>`/list-reverse-in-loop patterns present | Not examined: none.\
 Basis: verified.
 
-**Shared mutable state / `#elixir_erl` threading (lines 15-18, 24, 44, 50, 125).**
-Reason: State is a functionally threaded record (`stacktrace`, `counter`, `var_names`); the module makes no process-dictionary/ETS/application-env write, so there is no external-derived global one caller could poison for another.
-Axes examined: all state mutations in the file (record updates only) | Not examined: none.
+**Shared mutable state / `#elixir_erl` threading (lines 15-18, 24, 44, 50, 125).**\
+Reason: State is a functionally threaded record (`stacktrace`, `counter`, `var_names`); the module makes no process-dictionary/ETS/application-env write, so there is no external-derived global one caller could poison for another.\
+Axes examined: all state mutations in the file (record updates only) | Not examined: none.\
 Basis: verified.
 
 ### Did I verify this?

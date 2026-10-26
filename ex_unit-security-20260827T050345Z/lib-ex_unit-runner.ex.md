@@ -16,7 +16,7 @@ No findings
 
 ### Ruled out
 
-- **`create_tmp_dir!` → `Path.expand` + `File.rm_rf!`/`File.mkdir_p!` (lines 643–655).**
+- **`create_tmp_dir!` → `Path.expand` + `File.rm_rf!`/`File.mkdir_p!` (lines 643–655).**\
   The final path is `["tmp", module, "#{name}-#{short_hash}", extra_path] |> Path.join() |> Path.expand()`, then recursively deleted and recreated. I executed every reachable component-shaping axis on OTP 29:
   - `Path.expand(["tmp","MyApp.Foo","testx-abcd1234","../../../../tmp/pwned"])` ⇒ `"/tmp/pwned"` — a traversal in `extra_path` **does** escape the tmp root.
   - `extra_path` is the documented `:tmp_dir` *string* tag. I confirmed in `case.ex:285–310` that this tag is set only by the developer (`@tag tmp_dir: "my_path"` / `@moduletag` / `@describetag`) and that "removed before being created" is the documented contract (`case.ex:289`). No network/disk/dependency input feeds it.

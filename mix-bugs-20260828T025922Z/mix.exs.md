@@ -37,12 +37,12 @@ The `:registered` list enumerates the first three but omits `Mix.Sync.PubSub`, w
 
 ## Ruled out
 
-- **`System.version/0` / `Mix.CLI` fail to resolve at build time** (first-pass hedge #2).
-  Verified. `System.version/0` is an Elixir stdlib function (always present). `Mix.CLI` is defined at `lib/mix/lib/mix/cli.ex` (confirmed via grep for `defmodule Mix.CLI`). `Mix.State`, `Mix.TasksServer`, `Mix.ProjectStack`, and `Mix` all exist in-tree and are the correct singletons/entry points. The `escript`/`version`/`mod` entries therefore cannot fail to evaluate.
+- **`System.version/0` / `Mix.CLI` fail to resolve at build time** (first-pass hedge #2).\
+  Verified. `System.version/0` is an Elixir stdlib function (always present). `Mix.CLI` is defined at `lib/mix/lib/mix/cli.ex` (confirmed via grep for `defmodule Mix.CLI`). `Mix.State`, `Mix.TasksServer`, `Mix.ProjectStack`, and `Mix` all exist in-tree and are the correct singletons/entry points. The `escript`/`version`/`mod` entries therefore cannot fail to evaluate.\
   *Axes examined:* symbol existence of every referenced module and function. *Not examined:* none — every referenced symbol was located in-tree.
 
-- **Runtime failure classes (state-threading, silent-swallow, binary-decode crash, resource leak, atom exhaustion, `cond`/`case` fallthrough).**
-  No site: the file contains only literal keyword lists in two zero-arity functions — no input, no branching, no side effects.
+- **Runtime failure classes (state-threading, silent-swallow, binary-decode crash, resource leak, atom exhaustion, `cond`/`case` fallthrough).**\
+  No site: the file contains only literal keyword lists in two zero-arity functions — no input, no branching, no side effects.\
   *Axes examined:* control flow, external input, resource acquisition. *Not examined:* none.
 
 ## Did I verify this?

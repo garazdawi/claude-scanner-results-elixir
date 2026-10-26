@@ -29,7 +29,7 @@ Re-running the full candidate set plus the two adversarial harnesses on the byte
 - **Executed evidence (re-run this pass):** compiled `Target` to disk (`/tmp/ebin/Elixir.Target.beam`), rewrote its `Dbgi` chunk via `:beam_lib.all_chunks`/`build_module` to `{:debug_info_v1, Backend, :fakedata}`, purged/reloaded, and called `Exception.blame_mfa(Target, :foo, [1])` inside `try … catch k,v -> {:ESCAPED,k,v}`:
   - `ThrowBackend` (`throw(:boom_throw)`) → `{:ESCAPED, :throw, :boom_throw}` (not `:error`)
   - `ExitBackend` (`exit(:boom_exit)`) → `{:ESCAPED, :exit, :boom_exit}` (not `:error`)
-  - `ErrBackend` (`raise "boom_err"`, error class) → `:error` (correctly rescued)
+  - `ErrBackend` (`raise "boom_err"`, error class) → `:error` (correctly rescued)\
   This is the exact throw/exit-vs-error asymmetry the finding predicts.
 - **Confidence: Low.** The *mechanism* is executed-proven and reproducible. What holds it at Low is a single untried reachability axis: **can a benign, standard-compiled module (whose backend is the real `:elixir_erl`) reach a `throw`/`exit` on some unusual-but-valid input?** For ordinary Elixir modules the backend is `:elixir_erl`, which returns `{:ok, map}`; I did not exhibit a normally-compiled module whose `:elixir_erl`/`:elixir_erl_clauses` path emits `throw`/`exit` rather than an error-class raise, so no in-the-wild trigger with an uncorrupted beam is demonstrated. Reading those neighbour `.erl` modules would show what they do but not which inputs make them throw, so it cannot clear this axis — hence Low, not Medium. Suggested minimal hardening: broaden to `catch kind, reason -> :error` (or wrap in `try/catch`) so the documented `:error` return holds for all non-normal exits.
 

@@ -27,49 +27,49 @@ There is no documented public API that compiles attacker-supplied source in boot
 
 ### Ruled out
 
-- **`apply(?kernel, Fun, Args)` — `unless_loaded/3` (line 62). Class: Code execution / dynamic dispatch.**
-  Reason: both the module (`'Elixir.Kernel'`, a compile-time macro constant) and the function (`Fun`) are fixed literals — the sole caller (`'MACRO-@'/2`, line 15) passes the literal atom `'MACRO-@'` — so there is no attacker-controlled dispatch and no atom creation; it is the intended delegation to `Kernel.@` during macro expansion.
-  Axes examined: function-atom origin (literal vs param), module-atom origin (macro constant), export surface of `unless_loaded/3`, arity | Not examined: none.
+- **`apply(?kernel, Fun, Args)` — `unless_loaded/3` (line 62). Class: Code execution / dynamic dispatch.**\
+  Reason: both the module (`'Elixir.Kernel'`, a compile-time macro constant) and the function (`Fun`) are fixed literals — the sole caller (`'MACRO-@'/2`, line 15) passes the literal atom `'MACRO-@'` — so there is no attacker-controlled dispatch and no atom creation; it is the intended delegation to `Kernel.@` during macro expansion.\
+  Axes examined: function-atom origin (literal vs param), module-atom origin (macro constant), export surface of `unless_loaded/3`, arity | Not examined: none.\
   Basis: verified.
 
-- **`elixir_quote:escape(Block, escape, false)` — `MACRO-defmodule/3` (line 26); `elixir_quote:escape({Call,Expr}, escape, true)` — `define/4` (line 49). Class: Resource consumption (recursion) / code generation.**
-  Reason: `escape` is a `try`-wrapped recursive quote-tree walk (`elixir_quote.erl:149`) whose depth is bounded by the already-parsed AST; the input is trusted bootstrap source, and the recursion lives in `elixir_quote`, not here. Behaviour is identical to normal `Kernel` compilation.
-  Axes examined: input origin (parser-bounded AST), trust context (bootstrap-only/trusted), depth bound, exception containment (`try`) | Not examined: none.
+- **`elixir_quote:escape(Block, escape, false)` — `MACRO-defmodule/3` (line 26); `elixir_quote:escape({Call,Expr}, escape, true)` — `define/4` (line 49). Class: Resource consumption (recursion) / code generation.**\
+  Reason: `escape` is a `try`-wrapped recursive quote-tree walk (`elixir_quote.erl:149`) whose depth is bounded by the already-parsed AST; the input is trusted bootstrap source, and the recursion lives in `elixir_quote`, not here. Behaviour is identical to normal `Kernel` compilation.\
+  Axes examined: input origin (parser-bounded AST), trust context (bootstrap-only/trusted), depth bound, exception containment (`try`) | Not examined: none.\
   Basis: verified.
 
-- **`elixir_quote:has_unquotes(Call)` / `has_unquotes(Expr)` — `define/4` (lines 43–44). Class: Resource consumption (recursion).**
-  Reason: pure boolean tree-walk (`elixir_quote.erl:42–65`) over parser-bounded AST; no atoms, files, or mutable state; trusted input.
-  Axes examined: recursion depth (parser-bounded), side effects (none), input trust | Not examined: none.
+- **`elixir_quote:has_unquotes(Call)` / `has_unquotes(Expr)` — `define/4` (lines 43–44). Class: Resource consumption (recursion).**\
+  Reason: pure boolean tree-walk (`elixir_quote.erl:42–65`) over parser-bounded AST; no atoms, files, or mutable state; trusted input.\
+  Axes examined: recursion depth (parser-bounded), side effects (none), input trust | Not examined: none.\
   Basis: verified.
 
-- **AST tuples for `elixir_module:compile` (line 28) and `elixir_def:store_definition` (line 58). Class: Code execution (generated AST).**
-  Reason: these are literal AST tuples handed back to the expander; the file does not itself execute them, and they encode the same compiler calls the real `Kernel` macros emit. Downstream execution is normal compilation of trusted bootstrap source.
-  Axes examined: who executes (expander, not this file), argument provenance (Line/Alias/env from caller env), parity with Kernel path | Not examined: none.
+- **AST tuples for `elixir_module:compile` (line 28) and `elixir_def:store_definition` (line 58). Class: Code execution (generated AST).**\
+  Reason: these are literal AST tuples handed back to the expander; the file does not itself execute them, and they encode the same compiler calls the real `Kernel` macros emit. Downstream execution is normal compilation of trusted bootstrap source.\
+  Axes examined: who executes (expander, not this file), argument provenance (Line/Alias/env from caller env), parity with Kernel path | Not examined: none.\
   Basis: verified.
 
-- **`elixir_module:write_cache(Module, Key, {Call, Expr})` (line 53) and `cache_env(E#{line := Line})` (line 57). Class: Shared mutable state.**
-  Reason: `write_cache` inserts into a *module-scoped* ETS data table (`elixir_module.erl:56–58`) under `{cache, Key}` where `Key = erlang:unique_integer()`, and `cache_env` dedups the env in the same per-module table (`elixir_module.erl:82+`); there is no cross-module/cross-tenant key collision and the writer is the single compiling process. Not attacker-influenced across a trust boundary.
-  Axes examined: key scope (per-module table + unique_integer), writer concurrency (single compiler process), key collision, table origin | Not examined: none.
+- **`elixir_module:write_cache(Module, Key, {Call, Expr})` (line 53) and `cache_env(E#{line := Line})` (line 57). Class: Shared mutable state.**\
+  Reason: `write_cache` inserts into a *module-scoped* ETS data table (`elixir_module.erl:56–58`) under `{cache, Key}` where `Key = erlang:unique_integer()`, and `cache_env` dedups the env in the same per-module table (`elixir_module.erl:82+`); there is no cross-module/cross-tenant key collision and the writer is the single compiling process. Not attacker-influenced across a trust boundary.\
+  Axes examined: key scope (per-module table + unique_integer), writer concurrency (single compiler process), key collision, table origin | Not examined: none.\
   Basis: verified.
 
-- **`erlang:unique_integer()` (line 52). Class: Resource consumption / key generation.**
-  Reason: generates a fresh cache key; monotonic, no wrap-relevant security property, no external influence.
-  Axes examined: input influence (none), rollover relevance (none — used as an opaque ETS key) | Not examined: none.
+- **`erlang:unique_integer()` (line 52). Class: Resource consumption / key generation.**\
+  Reason: generates a fresh cache key; monotonic, no wrap-relevant security property, no external influence.\
+  Axes examined: input influence (none), rollover relevance (none — used as an opaque ETS key) | Not examined: none.\
   Basis: verified.
 
-- **Pattern-match clauses in `define/4` (line 42, requires `{Line,_S,#{module:=Module}=E}`) and `MACRO-defmodule/3` (line 25, requires `[{do, Block}]`). Class: Dead / unreachable defensive code (input validation via match).**
-  Reason: these are not defensive guards but ordinary destructuring; a malformed caller env or missing `do` block yields a `function_clause` compile error surfaced by the compiler, not a security event, and in bootstrap mode the expander guarantees well-formed args. No fall-through to acceptance.
-  Axes examined: consequence of non-match (compile error), input well-formedness guarantee (compiler-produced env), acceptance fall-through (none) | Not examined: none.
+- **Pattern-match clauses in `define/4` (line 42, requires `{Line,_S,#{module:=Module}=E}`) and `MACRO-defmodule/3` (line 25, requires `[{do, Block}]`). Class: Dead / unreachable defensive code (input validation via match).**\
+  Reason: these are not defensive guards but ordinary destructuring; a malformed caller env or missing `do` block yields a `function_clause` compile error surfaced by the compiler, not a security event, and in bootstrap mode the expander guarantees well-formed args. No fall-through to acceptance.\
+  Axes examined: consequence of non-match (compile error), input well-formedness guarantee (compiler-produced env), acceptance fall-through (none) | Not examined: none.\
   Basis: verified.
 
-- **`__info__/1` (lines 30–40). Class: Deserialisation / metadata.**
-  Reason: returns a static literal list of `{macro, arity}` tuples; no input, no dynamic term construction, no atom creation.
-  Axes examined: input (none), dynamic construction (none) | Not examined: none.
+- **`__info__/1` (lines 30–40). Class: Deserialisation / metadata.**\
+  Reason: returns a static literal list of `{macro, arity}` tuples; no input, no dynamic term construction, no atom creation.\
+  Axes examined: input (none), dynamic construction (none) | Not examined: none.\
   Basis: verified.
 
-- **Standards/Unicode checklist (sub-claims 1–12) and RFC clauses (1–10).**
-  Reason: this file contains no tokenizer, interpolation, escape-decoding, UTF-8 conversion, identifier-security, bidi/NFC, or atom-from-text code; a full read (68 lines) and a targeted grep for `unicode|binary_to_atom|list_to_atom|characters_to|binary_to_term|bidi|nfc` returned no matches. All obligations are owned by `elixir_tokenizer.erl`/`elixir_interpolation.erl`/`elixir_utils.erl`.
-  Axes examined: presence of Unicode/atom/escape/UTF-8/bidi code (grep + full read) | Not examined: none.
+- **Standards/Unicode checklist (sub-claims 1–12) and RFC clauses (1–10).**\
+  Reason: this file contains no tokenizer, interpolation, escape-decoding, UTF-8 conversion, identifier-security, bidi/NFC, or atom-from-text code; a full read (68 lines) and a targeted grep for `unicode|binary_to_atom|list_to_atom|characters_to|binary_to_term|bidi|nfc` returned no matches. All obligations are owned by `elixir_tokenizer.erl`/`elixir_interpolation.erl`/`elixir_utils.erl`.\
+  Axes examined: presence of Unicode/atom/escape/UTF-8/bidi code (grep + full read) | Not examined: none.\
   Basis: verified.
 
 ### Did I verify this?

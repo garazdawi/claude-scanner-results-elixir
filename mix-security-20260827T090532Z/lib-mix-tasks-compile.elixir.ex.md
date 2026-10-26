@@ -23,34 +23,34 @@ No findings.
 
 ### Ruled out
 
-- **`Module.concat([&1])` on `--tracer` values (`pop_tracers/1`, line 258).**
-  Genuine atom creation from a string — re-reproduced in the sandbox: `Module.concat(["Totally.Fresh...#{n}"])` raised `atom_count` 18503→18505 and returned a fresh `:"Elixir.Totally.Fresh..."` atom. The result is used as a compiler-tracer module reference (`tracers_opts/1`). **Provenance now verified end-to-end:** the string can only come from `OptionParser.parse(args, …)` at line 126; `args` is delivered by `Mix.Task.run("compile.elixir", args)` inside `run_compiler/2` (`task.compiler.ex:299`), which forwards its `args` verbatim (only optionally prepending `--force`, `maybe_prepend_force/2`); that `args` is `Mix.Task.Compiler.run(compilers, args)` from `compile.all.ex:74-75`, whose `args` is `Mix.Tasks.Compile.All.run/1`'s own argv. No hop injects, rewrites, or sources a `--tracer` value from a dependency, git ref, archive, lockfile, or network peer. A malicious dependency cannot add `--tracer` to the top-level invocation; a dependency that *could* influence compile options already runs arbitrary code at build time (`deps.compile` compiles its source), so this grants no escalation. Atom creation is the intended semantics (`Module.safe_concat/1` would reject a not-yet-loaded tracer). Developer CLI input is explicitly out of scope per the threat model. Hardening (not required): `Module.safe_concat/1`.
-  Axes examined: input provenance (full argv dispatch chain read hop-by-hop), atom-creation reality (executed), escalation-from-dependency. Not examined: none.
+- **`Module.concat([&1])` on `--tracer` values (`pop_tracers/1`, line 258).**\
+  Genuine atom creation from a string — re-reproduced in the sandbox: `Module.concat(["Totally.Fresh...#{n}"])` raised `atom_count` 18503→18505 and returned a fresh `:"Elixir.Totally.Fresh..."` atom. The result is used as a compiler-tracer module reference (`tracers_opts/1`). **Provenance now verified end-to-end:** the string can only come from `OptionParser.parse(args, …)` at line 126; `args` is delivered by `Mix.Task.run("compile.elixir", args)` inside `run_compiler/2` (`task.compiler.ex:299`), which forwards its `args` verbatim (only optionally prepending `--force`, `maybe_prepend_force/2`); that `args` is `Mix.Task.Compiler.run(compilers, args)` from `compile.all.ex:74-75`, whose `args` is `Mix.Tasks.Compile.All.run/1`'s own argv. No hop injects, rewrites, or sources a `--tracer` value from a dependency, git ref, archive, lockfile, or network peer. A malicious dependency cannot add `--tracer` to the top-level invocation; a dependency that *could* influence compile options already runs arbitrary code at build time (`deps.compile` compiles its source), so this grants no escalation. Atom creation is the intended semantics (`Module.safe_concat/1` would reject a not-yet-loaded tracer). Developer CLI input is explicitly out of scope per the threat model. Hardening (not required): `Module.safe_concat/1`.\
+  Axes examined: input provenance (full argv dispatch chain read hop-by-hop), atom-creation reality (executed), escalation-from-dependency. Not examined: none.\
   Confidence: high (not a finding).
 
-- **`case tuple_or_atom` / `Keyword.get(properties, …)` in `infer_signatures/1` (lines 203–214).**
-  A malformed `application/0` return (non-keyword `properties`, or an `extra_applications`/`included_applications` entry that is neither a 2-tuple nor an atom) raises `case_clause`/`Keyword` errors. When compiling a dependency this runs against the dep's own `mix.exs`. Outcome is a self-inflicted build abort only — a malicious dep can fail its own build trivially — and no atom is created from a string, no privilege boundary crossed. `properties` comes from `project.application()` (the project module's own compiled `mix.exs` code, RCE-by-design per threat model), and `Mix.Dep.cached()` yields operator/dependency-resolved dep structs (out of scope: an actor controlling these already has build-time code execution).
-  Axes examined: crash reachability (malformed config → raise), string→atom (none present), trust boundary (self-inflicted build abort). Not examined: none material — `Mix.Dep.cached/0` internals treated as operator/dep config per threat model, and no code path here turns its output into a string-derived atom (the `for` comprehension binds existing `app` atoms only).
+- **`case tuple_or_atom` / `Keyword.get(properties, …)` in `infer_signatures/1` (lines 203–214).**\
+  A malformed `application/0` return (non-keyword `properties`, or an `extra_applications`/`included_applications` entry that is neither a 2-tuple nor an atom) raises `case_clause`/`Keyword` errors. When compiling a dependency this runs against the dep's own `mix.exs`. Outcome is a self-inflicted build abort only — a malicious dep can fail its own build trivially — and no atom is created from a string, no privilege boundary crossed. `properties` comes from `project.application()` (the project module's own compiled `mix.exs` code, RCE-by-design per threat model), and `Mix.Dep.cached()` yields operator/dependency-resolved dep structs (out of scope: an actor controlling these already has build-time code execution).\
+  Axes examined: crash reachability (malformed config → raise), string→atom (none present), trust boundary (self-inflicted build abort). Not examined: none material — `Mix.Dep.cached/0` internals treated as operator/dep config per threat model, and no code path here turns its output into a string-derived atom (the `for` comprehension binds existing `app` atoms only).\
   Confidence: high (not a finding).
 
-- **`Application.put_env(:logger, :compile_time_application, app)` (`with_logger_app/2`, line 230).**
-  Global application-env write, but `app = Keyword.fetch!(config, :app)` is the project's own `:app` atom from its already-compiled `mix.exs`, and the prior value is restored in the `after` block (line 233). No externally derived key/value, no cross-tenant poisoning.
-  Axes examined: key/value provenance (operator config), restoration (after-block balanced). Not examined: none.
+- **`Application.put_env(:logger, :compile_time_application, app)` (`with_logger_app/2`, line 230).**\
+  Global application-env write, but `app = Keyword.fetch!(config, :app)` is the project's own `:app` atom from its already-compiled `mix.exs`, and the prior value is restored in the `after` block (line 233). No externally derived key/value, no cross-tenant poisoning.\
+  Axes examined: key/value provenance (operator config), restoration (after-block balanced). Not examined: none.\
   Confidence: high (not a finding).
 
-- **`Code.get_compiler_option(:tracers)` merge (`tracers_opts/1`, line 263).**
-  Newly checked in this pass to close hedge (2). Returns whatever was set via `Code.put_compiler_option/2` — operator/project config, a list of already-resolved tracer *atoms*, not strings. It is concatenated into `opts[:tracers]`; no `String.to_atom`/`Module.concat` is applied to its contents. So even if an operator seeds it, no string→atom sink exists here.
-  Axes examined: value type (atom list, not string), sink presence (no atom-from-string on this path). Not examined: none.
+- **`Code.get_compiler_option(:tracers)` merge (`tracers_opts/1`, line 263).**\
+  Newly checked in this pass to close hedge (2). Returns whatever was set via `Code.put_compiler_option/2` — operator/project config, a list of already-resolved tracer *atoms*, not strings. It is concatenated into `opts[:tracers]`; no `String.to_atom`/`Module.concat` is applied to its contents. So even if an operator seeds it, no string→atom sink exists here.\
+  Axes examined: value type (atom list, not string), sink presence (no atom-from-string on this path). Not examined: none.\
   Confidence: high (not a finding).
 
-- **`srcs`/`elixirc_paths`, `compile_path`, `manifest()` paths.**
-  All path components come from operator-controlled project config or the constant `@manifest` (`"compile.elixir"`); `Path.join` uses no external component and no `File` read/write/extract happens in this file. The `is_list(srcs) and Enum.all?(&is_binary/1)` guard (line 133) is reachable (set `:elixirc_paths` to a non-list) and correctly rejects malformed config — not dead code.
-  Axes examined: path-component provenance (operator config / constant), guard reachability. Not examined: none.
+- **`srcs`/`elixirc_paths`, `compile_path`, `manifest()` paths.**\
+  All path components come from operator-controlled project config or the constant `@manifest` (`"compile.elixir"`); `Path.join` uses no external component and no `File` read/write/extract happens in this file. The `is_list(srcs) and Enum.all?(&is_binary/1)` guard (line 133) is reachable (set `:elixirc_paths` to a non-list) and correctly rejects malformed config — not dead code.\
+  Axes examined: path-component provenance (operator config / constant), guard reachability. Not examined: none.\
   Confidence: high (not a finding).
 
-- **`profile_opts/1` (lines 267–273).**
-  Maps the `:profile` string to the literal atom `:time` (`{:ok, "time"}`) or deletes the key for any other value; never calls `String.to_atom` on the untrusted value. This is the safe pattern, not a sink.
-  Axes examined: string→atom (only literal `:time` produced), fallthrough (deletes key). Not examined: none.
+- **`profile_opts/1` (lines 267–273).**\
+  Maps the `:profile` string to the literal atom `:time` (`{:ok, "time"}`) or deletes the key for any other value; never calls `String.to_atom` on the untrusted value. This is the safe pattern, not a sink.\
+  Axes examined: string→atom (only literal `:time` produced), fallthrough (deletes key). Not examined: none.\
   Confidence: high (not a finding).
 
 ## Risks / caveats (scope, not unverified assumptions)

@@ -28,7 +28,7 @@ The trust boundary throughout: the `doc`/`headings` string is documentation cont
 - **Issue:** The inline path `handle_inline("<!--" <> rest, nil, ...)` calls the *binary* `drop_comment/1`, which does a strict two-element match `[_comment, rest] = :binary.split(line, "-->")`. When a paragraph contains an opening `<!--` **not at the start of a line** and with no `-->` after it, `:binary.split/2` returns a single-element list and the match raises `MatchError`. (The line-*start* path uses the safe multi-line `drop_comment/1` list clause, so only the inline path is affected.)
 - **Impact / threat:** Any documentation paragraph with a stray, mid-line, unterminated `<!--` (adversarial *or* an author's honest mistake) aborts the render. IEx's evaluator rescues it (the doc simply fails to display), but any non-IEx caller of this renderer (a Mix task, a script) is aborted. Crossing the dependency-docs → developer-terminal boundary.
 - **Evidence:** `verified`.
-  - `IO.ANSI.Docs.print("foo <!-- bar baz", "text/markdown", enabled: false)` →
+  - `IO.ANSI.Docs.print("foo <!-- bar baz", "text/markdown", enabled: false)` →\
     `** (MatchError) no match of right hand side value: [" bar baz"]` at `docs.ex:645: drop_comment/1` ← `docs.ex:696: handle_inline/5`.
   - Same crash with default options: `print("see <!-- todo notes here", "text/markdown", [])` → `MatchError`.
   - Control: `"foo <!-- bar --> baz"` and line-start `"<!-- bar baz"` → no crash.

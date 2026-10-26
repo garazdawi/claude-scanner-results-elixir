@@ -1,8 +1,8 @@
 # Validator verdicts
 
-Automated prove-or-disprove pass over every `CSCAN-*` finding in the
-sibling per-file reports. Each verdict is one Claude call with both-
-sides steelman prompt at `--effort medium`. Read the **Reasoning**
+Automated prove-or-disprove pass over every `CSCAN-*` finding in the\
+sibling per-file reports. Each verdict is one Claude call with both-\
+sides steelman prompt at `--effort medium`. Read the **Reasoning**\
 line per finding to decide whether to trust the verdict.
 
 ## Summary
@@ -21,8 +21,8 @@ line per finding to decide whether to trust the verdict.
 
 ### Validator verdict for CSCAN-elixir-rfc-directional_formatting_not_prohibited
 
-**Verdict:** real
-**Confidence:** medium
+**Verdict:** real\
+**Confidence:** medium\
 **Files read:** /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_interpolation.erl, /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_tokenizer.hrl, /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_tokenizer.erl
 
 **Steelman (real):** The code matches the finding exactly. `?bidi/1` (tokenizer.hrl:27-35) enumerates precisely the nine directional formatting characters (202A/B/C/D/E, 2066-2069). In `extract_char` (interpolation.erl:95-102), the first raw bidi char in any string literal yields an unconditional `{error, ...}` ("invalid bidirectional formatting character in string…"), and `tokenize_comment` (tokenizer.erl:1357-1358) does the same for comments. These are core, always-on tokenizer paths — every Elixir source string and comment flows through them in production, no flag or test hook gating them. There is no exception for balanced/terminated isolates or embeddings, and no warn-based alternative. UTS #55 §5.1.6 SHOULD-NOT says "Implementations should not prohibit the use of the directional formatting characters," recommending warnings scoped to when their effect spans a token/comment rather than outright rejection. Elixir outright rejects every raw occurrence, which is a genuine, reachable deviation from the cited clause.

@@ -19,79 +19,79 @@ All security-relevant sinks in this file are either bounded by a finite operator
 
 ## Ruled out
 
-- **`unsafe_to_atom` — unbounded atom creation from identifiers/atoms/quoted-atoms/multi-letter-sigils (CWE-770 atom exhaustion)** — lines 1077–1167, 553, 850, 998, 1805.
-Reason: This is the tokenizer's intended function (source identifiers become atoms); it is fully gated — with `existing_atoms_only=true` it routes to `binary_to_existing_atom`/`list_to_existing_atom` (lines 1110, 1140) and with a `static_atoms_encoder` to the caller's encoder (1087–1107), so a caller parsing untrusted input can prevent all unbounded creation. The default (create atoms) is the documented behavior of `Code.string_to_quoted/2`. No defect in this file. See Risks.
-Axes examined: existing_atoms_only on/off, static_atoms_encoder present/absent, binary-vs-list input, multi-letter sigil path, quoted-atom path | Not examined: none.
+- **`unsafe_to_atom` — unbounded atom creation from identifiers/atoms/quoted-atoms/multi-letter-sigils (CWE-770 atom exhaustion)** — lines 1077–1167, 553, 850, 998, 1805.\
+Reason: This is the tokenizer's intended function (source identifiers become atoms); it is fully gated — with `existing_atoms_only=true` it routes to `binary_to_existing_atom`/`list_to_existing_atom` (lines 1110, 1140) and with a `static_atoms_encoder` to the caller's encoder (1087–1107), so a caller parsing untrusted input can prevent all unbounded creation. The default (create atoms) is the documented behavior of `Code.string_to_quoted/2`. No defect in this file. See Risks.\
+Axes examined: existing_atoms_only on/off, static_atoms_encoder present/absent, binary-vs-list input, multi-letter sigil path, quoted-atom path | Not examined: none.\
 Basis: verified.
 
-- **`unsafe_to_atom` length guard — `system_limit` crash on >255-char atom** — lines 1077–1086.
-Reason: The `byte_size(Part) > 255` / `length(Part) > 255` guard fires before any `*_to_atom` call, returning `{error, …}` instead of crashing; it is conservative (byte-count on binaries over-rejects some valid multibyte atoms but never lets an over-long one through).
-Axes examined: 256-char list (→ `system_limit` without guard), 255-byte binary (ok), 400-byte/200-char multibyte binary (guard over-rejects, no crash) | Not examined: none.
+- **`unsafe_to_atom` length guard — `system_limit` crash on >255-char atom** — lines 1077–1086.\
+Reason: The `byte_size(Part) > 255` / `length(Part) > 255` guard fires before any `*_to_atom` call, returning `{error, …}` instead of crashing; it is conservative (byte-count on binaries over-rejects some valid multibyte atoms but never lets an over-long one through).\
+Axes examined: 256-char list (→ `system_limit` without guard), 255-byte binary (ok), 400-byte/200-char multibyte binary (guard over-rejects, no crash) | Not examined: none.\
 Basis: verified — `ran erlc/erl`: `list_to_atom/256chars: {error,system_limit}`, `binary_to_atom/255bytes: 255`, `mb bytes=400 chars=200 atom=200`.
 
-- **Bounded `list_to_atom` on operator/delimiter/single-letter-sigil text** — lines 342, 357, 364, 386–521, 435, 439, 444, 1024, 1046, 1522–1523, 1804.
-Reason: Each argument is drawn from a fixed finite alphabet (operator glyphs matched by the `?…_op` macros, container punctuation, string delimiters, single ASCII sigil letters), so the set of producible atoms is finite and cannot exhaust the table.
-Axes examined: operator length (1–3), delimiter set (`" ' / < > [ ] ( ) { } |`), single-letter sigil (52), interpolation_format opening/closing call sites | Not examined: none.
+- **Bounded `list_to_atom` on operator/delimiter/single-letter-sigil text** — lines 342, 357, 364, 386–521, 435, 439, 444, 1024, 1046, 1522–1523, 1804.\
+Reason: Each argument is drawn from a fixed finite alphabet (operator glyphs matched by the `?…_op` macros, container punctuation, string delimiters, single ASCII sigil letters), so the set of producible atoms is finite and cannot exhaust the table.\
+Axes examined: operator length (1–3), delimiter set (`" ' / < > [ ] ( ) { } |`), single-letter sigil (52), interpolation_format opening/closing call sites | Not examined: none.\
 Basis: verified.
 
-- **Bidi/break rejection in comments** — `tokenize_comment/2`, lines 1353–1364.
-Reason: Every comment codepoint is tested with `?bidi`/`?break` before accumulation; CRLF/LF end the comment first (matching the hrl contract), and a bare CR (`?break(16#000D)`) errors. No context bypass (claim BIDI_COMMENT_NO_BYPASS).
-Axes examined: all 9 bidi controls, VT/FF/bare-CR/NEL/LS/PS, CRLF-before-break ordering | Not examined: none.
+- **Bidi/break rejection in comments** — `tokenize_comment/2`, lines 1353–1364.\
+Reason: Every comment codepoint is tested with `?bidi`/`?break` before accumulation; CRLF/LF end the comment first (matching the hrl contract), and a bare CR (`?break(16#000D)`) errors. No context bypass (claim BIDI_COMMENT_NO_BYPASS).\
+Axes examined: all 9 bidi controls, VT/FF/bare-CR/NEL/LS/PS, CRLF-before-break ordering | Not examined: none.\
 Basis: verified (read 1353–1364 + hrl 27–46; clause order makes every char pass the guard).
 
-- **Bidi/break rejection in strings/sigils/heredocs** — delegated to `elixir_interpolation:extract` → `extract_char`, lines 93–112.
-Reason: `extract_char` rejects `?bidi`/`?break` for every codepoint; the ≤255 fast-path (interpolation 86–88) excludes break chars (`not ?break(Char1)`) and all bidi controls (all >255), routing them to `extract_char`. Holds for `Interpol=true` and uppercase-sigil `Interpol=false` alike.
-Axes examined: bidi >255 via fast-path bypass attempt, break ≤255 in fast path, char at end-of-string before terminator, Interpol true/false | Not examined: none.
+- **Bidi/break rejection in strings/sigils/heredocs** — delegated to `elixir_interpolation:extract` → `extract_char`, lines 93–112.\
+Reason: `extract_char` rejects `?bidi`/`?break` for every codepoint; the ≤255 fast-path (interpolation 86–88) excludes break chars (`not ?break(Char1)`) and all bidi controls (all >255), routing them to `extract_char`. Holds for `Interpol=true` and uppercase-sigil `Interpol=false` alike.\
+Axes examined: bidi >255 via fast-path bypass attempt, break ≤255 in fast path, char at end-of-string before terminator, Interpol true/false | Not examined: none.\
 Basis: verified (read interpolation 19–112; traced `"a<VT>"`, `"a<RLO>"` by hand through the clauses).
 
-- **Mixed-script / restricted-codepoint / non-NFC identifier rejection** — `tokenize_identifier/5`, lines 1400–1442; `tokenize_alias`, 1485–1495.
-Reason: The `{error,{mixed_script,…}}` and `{error,{unexpected_token,…}}` arms return an error/`{unexpected_token,Length}` marker and never the `{Kind,…}` success shape, so the caller (687–740) cannot accept the token; the confusable-skeleton/NFKC machinery (1444–1475) only builds a *suggestion* message and still returns an error (claim CONFUSABLE_SKELETON_SUGGESTION). Aliases with `not Ascii or Special/=[]` hard-error (ALIAS_ASCII_ONLY).
-Axes examined: mixed_script arm, unexpected_token arm, suggestion→no_suggestion fall-through, alias non-ASCII/punctuation | Not examined: the underlying script/NFC/Identifier_Status tables themselves (owned by `String.Tokenizer`, out of this file).
-Basis: asserted.
+- **Mixed-script / restricted-codepoint / non-NFC identifier rejection** — `tokenize_identifier/5`, lines 1400–1442; `tokenize_alias`, 1485–1495.\
+Reason: The `{error,{mixed_script,…}}` and `{error,{unexpected_token,…}}` arms return an error/`{unexpected_token,Length}` marker and never the `{Kind,…}` success shape, so the caller (687–740) cannot accept the token; the confusable-skeleton/NFKC machinery (1444–1475) only builds a *suggestion* message and still returns an error (claim CONFUSABLE_SKELETON_SUGGESTION). Aliases with `not Ascii or Special/=[]` hard-error (ALIAS_ASCII_ONLY).\
+Axes examined: mixed_script arm, unexpected_token arm, suggestion→no_suggestion fall-through, alias non-ASCII/punctuation | Not examined: the underlying script/NFC/Identifier_Status tables themselves (owned by `String.Tokenizer`, out of this file).\
+Basis: asserted.\
 Depends on: `lib/elixir/unicode/tokenizer.ex` (`String.Tokenizer`) — its `tokenize/1` actually returns `{error,{mixed_script,…}}` / `{error,{unexpected_token,…}}` for restricted/mixed/non-NFC identifiers rather than a success tuple (covered by memories [[elixir-tokenizer-uts39-mixed-script-satisfied]] and [[elixir-tokenizer-uts39-restricted-satisfied]]).
 
-- **Unicode escape scalar/well-formedness validation** — delegated to `elixir_interpolation` `unescape_unicode`/`unescape_hex`/`append_codepoint`, lines 221–261.
-Reason: `\u{…}` (≤6 hex) and `\uHHHH` decode via `list_to_integer(_,16)` then `<<Codepoint/utf8>>`, whose bit-syntax rejects surrogates and >U+10FFFF (`badarg` → `throw "invalid or reserved Unicode code point"`); malformed `\x`/`\u` throw descriptive errors (claims UNICODE_ESCAPE_SCALAR_ONLY, UNICODE_ESCAPE_WELLFORMED).
-Axes examined: surrogate D800, U+110000, U+10FFFF (valid), U+FFFFFF (6×F), truncated `\x`/`\u` | Not examined: none.
+- **Unicode escape scalar/well-formedness validation** — delegated to `elixir_interpolation` `unescape_unicode`/`unescape_hex`/`append_codepoint`, lines 221–261.\
+Reason: `\u{…}` (≤6 hex) and `\uHHHH` decode via `list_to_integer(_,16)` then `<<Codepoint/utf8>>`, whose bit-syntax rejects surrogates and >U+10FFFF (`badarg` → `throw "invalid or reserved Unicode code point"`); malformed `\x`/`\u` throw descriptive errors (claims UNICODE_ESCAPE_SCALAR_ONLY, UNICODE_ESCAPE_WELLFORMED).\
+Axes examined: surrogate D800, U+110000, U+10FFFF (valid), U+FFFFFF (6×F), truncated `\x`/`\u` | Not examined: none.\
 Basis: verified — `ran erl`: `<<16#D800/utf8>>`→badarg, `<<16#110000/utf8>>`→badarg, `<<16#10FFFF/utf8>>`→4 bytes, `<<16#FFFFFF/utf8>>`→EXIT.
 
-- **Char literal `?X` accepts raw bidi/break control codepoints** — lines 234–288 (esp. 271).
-Reason: `?<RLO>`, `?<VT>`, `?<LS>` etc. are accepted as `{char,_,Codepoint}` (only bare `?\r`/`?\ \r` are special-cased, 230/267). This is *not* one of the three surfaces the Trojan-Source obligation covers (identifiers/strings/comments), and it is not weaponizable: a char literal holds exactly one codepoint, so the matched isolate/pop pair a reordering attack needs cannot be formed, and any lone bidi pop elsewhere in code position errors as `unexpected_token`. Attacker uplift: none beyond a single already-visible `?`-prefixed control char. Accepting any operand is the intended `?X` feature.
-Axes examined: all 9 bidi controls, VT/FF/NEL/LS/PS, bare-CR special case | Not examined: multi-char reordering (structurally impossible — one codepoint per literal).
-Basis: asserted.
+- **Char literal `?X` accepts raw bidi/break control codepoints** — lines 234–288 (esp. 271).\
+Reason: `?<RLO>`, `?<VT>`, `?<LS>` etc. are accepted as `{char,_,Codepoint}` (only bare `?\r`/`?\ \r` are special-cased, 230/267). This is *not* one of the three surfaces the Trojan-Source obligation covers (identifiers/strings/comments), and it is not weaponizable: a char literal holds exactly one codepoint, so the matched isolate/pop pair a reordering attack needs cannot be formed, and any lone bidi pop elsewhere in code position errors as `unexpected_token`. Attacker uplift: none beyond a single already-visible `?`-prefixed control char. Accepting any operand is the intended `?X` feature.\
+Axes examined: all 9 bidi controls, VT/FF/NEL/LS/PS, bare-CR special case | Not examined: multi-char reordering (structurally impossible — one codepoint per literal).\
+Basis: asserted.\
 Depends on: no in-file/parser path concatenates char-literal codepoints back into a source-reordering region — char tokens become integer values, not source text.
 
-- **Large number-literal cost** — `tokenize_number`/`tokenize_hex/octal/bin` → `list_to_integer/1,2`, lines 1282–1346.
-Reason: Cost is only mildly super-linear on modern OTP (subquadratic bignum conversion) and bounded by source length; not a practical DoS.
-Axes examined: decimal & base-16, 100k–800k digits, underscore padding | Not examined: none.
+- **Large number-literal cost** — `tokenize_number`/`tokenize_hex/octal/bin` → `list_to_integer/1,2`, lines 1282–1346.\
+Reason: Cost is only mildly super-linear on modern OTP (subquadratic bignum conversion) and bounded by source length; not a practical DoS.\
+Axes examined: decimal & base-16, 100k–800k digits, underscore padding | Not examined: none.\
 Basis: verified — `ran erl`: decimal 800k digits=66ms, hex 800k digits=15ms (≈N^1.4, not N²).
 
-- **Unbounded recursion / list growth (nested containers, interpolation, Tokens/Terminators/Warnings)** — `tokenize/5`, `check_terminator`, `elixir_interpolation:extract`↔`elixir_tokenizer:tokenize`.
-Reason: `tokenize/5` is tail-recursive (container nesting builds O(input) `Terminators`/`Tokens` lists, no C-stack growth); only `#{…}` interpolation is non-tail, and its depth is bounded by source nesting depth ≤ input size — inherent to any parser, no amplification.
-Axes examined: container nesting (tail), interpolation nesting (depth≤input), warnings/tokens growth (O(input)) | Not examined: exact heap ceiling under adversarial deep nesting (memory-bound, not a distinct code defect).
-Basis: asserted.
+- **Unbounded recursion / list growth (nested containers, interpolation, Tokens/Terminators/Warnings)** — `tokenize/5`, `check_terminator`, `elixir_interpolation:extract`↔`elixir_tokenizer:tokenize`.\
+Reason: `tokenize/5` is tail-recursive (container nesting builds O(input) `Terminators`/`Tokens` lists, no C-stack growth); only `#{…}` interpolation is non-tail, and its depth is bounded by source nesting depth ≤ input size — inherent to any parser, no amplification.\
+Axes examined: container nesting (tail), interpolation nesting (depth≤input), warnings/tokens growth (O(input)) | Not examined: exact heap ceiling under adversarial deep nesting (memory-bound, not a distinct code defect).\
+Basis: asserted.\
 Depends on: `elixir_interpolation.erl` — `extract`'s `#{…}` recursion into `elixir_tokenizer:tokenize/4` has no per-level multiplier (verified by read, interpolation 61–79).
 
-- **`lists:nthtail(Length-1, String)` crash** — lines 591, 736.
-Reason: `Length` is the length of a token that is a prefix of `String`, so `Length-1 < length(String)`; `nthtail` always leaves ≥1 element — no `function_clause`.
-Axes examined: Length=len(String), Length<len(String), empty-tail | Not examined: none.
+- **`lists:nthtail(Length-1, String)` crash** — lines 591, 736.\
+Reason: `Length` is the length of a token that is a prefix of `String`, so `Length-1 < length(String)`; `nthtail` always leaves ≥1 element — no `function_clause`.\
+Axes examined: Length=len(String), Length<len(String), empty-tail | Not examined: none.\
 Basis: verified (read 580–594, 687–740, 745; `Length` originates as `length(Wrong)` with `Wrong ⊆ String`).
 
-- **Global config read** — `elixir_config:identifier_tokenizer()`, line 128.
-Reason: Read-only fetch of operator-set compiler config; no external-input write to global state in this file.
-Axes examined: read vs write, per-parse locality | Not examined: none.
+- **Global config read** — `elixir_config:identifier_tokenizer()`, line 128.\
+Reason: Read-only fetch of operator-set compiler config; no external-input write to global state in this file.\
+Axes examined: read vs write, per-parse locality | Not examined: none.\
 Basis: verified.
 
-- **`static_atoms_encoder` callback dispatch** — lines 1087–1107.
-Reason: A caller-supplied `fun/2` invoked per its documented `{ok,Term}|{error,Binary}` contract; a non-conforming return crashes the caller only and is an internal contract violation (out of scope).
-Axes examined: `{ok,_}`, `{error,Binary}` | Not examined: non-tuple return (caller contract, excluded).
-Basis: asserted.
+- **`static_atoms_encoder` callback dispatch** — lines 1087–1107.\
+Reason: A caller-supplied `fun/2` invoked per its documented `{ok,Term}|{error,Binary}` contract; a non-conforming return crashes the caller only and is an internal contract violation (out of scope).\
+Axes examined: `{ok,_}`, `{error,Binary}` | Not examined: non-tuple return (caller contract, excluded).\
+Basis: asserted.\
 Depends on: caller passing a `static_atoms_encoder` honoring the `{ok,_}|{error,binary()}` spec.
 
-- **`format_error/1` → `elixir_utils:characters_to_binary`** — lines 1920–1923.
-Reason: Operates on the tokenizer's own error tuples whose tokens are already valid codepoints (source enters as a validated charlist via `elixir:string_to_tokens`); `characters_to_binary` surfaces any encoding error as a `UnicodeConversionError` rather than silent garbage (claim UTF8_DECODE_ERRORS_SURFACED, `elixir_utils.erl:147–155`).
-Axes examined: valid-codepoint error tokens, invalid-UTF-8 surfacing behavior | Not examined: whether every caller pre-validates the charlist.
-Basis: asserted.
+- **`format_error/1` → `elixir_utils:characters_to_binary`** — lines 1920–1923.\
+Reason: Operates on the tokenizer's own error tuples whose tokens are already valid codepoints (source enters as a validated charlist via `elixir:string_to_tokens`); `characters_to_binary` surfaces any encoding error as a `UnicodeConversionError` rather than silent garbage (claim UTF8_DECODE_ERRORS_SURFACED, `elixir_utils.erl:147–155`).\
+Axes examined: valid-codepoint error tokens, invalid-UTF-8 surfacing behavior | Not examined: whether every caller pre-validates the charlist.\
+Basis: asserted.\
 Depends on: `elixir.erl` — `string_to_tokens`/`string_to_quoted` convert the input binary to a charlist (raising on invalid UTF-8) before calling `tokenize/4`.
 
 ## Did I verify this?

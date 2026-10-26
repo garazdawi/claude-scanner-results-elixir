@@ -21,89 +21,89 @@ No findings
 
 ### Ruled out
 
-**Operator / precedence typo**
-Reason: The file contains no guards, boolean expressions, or operators — only literal data structures and one function call.
-Axes examined: guard connectives, boolean ops, comparison ops | Not examined: none (no such constructs present in file).
+**Operator / precedence typo**\
+Reason: The file contains no guards, boolean expressions, or operators — only literal data structures and one function call.\
+Axes examined: guard connectives, boolean ops, comparison ops | Not examined: none (no such constructs present in file).\
 Basis: verified
 
-**Missing clause / catch-all**
-Reason: `init/1` intentionally matches only `ok`, which is the only value `start_link/0` ever passes; no other documented caller exists.
-Axes examined: `ok` arg, non-`ok` atom, non-atom term | Not examined: none — only `start_link/0` reaches `init/1` and it passes the literal `ok`.
+**Missing clause / catch-all**\
+Reason: `init/1` intentionally matches only `ok`, which is the only value `start_link/0` ever passes; no other documented caller exists.\
+Axes examined: `ok` arg, non-`ok` atom, non-atom term | Not examined: none — only `start_link/0` reaches `init/1` and it passes the literal `ok`.\
 Basis: verified
 
-**Wrong atom / wrong symbol**
-Reason: Every atom (`elixir_config`, `elixir_code_server`, `permanent`, `worker`, `one_for_one`, `ok`) is a real, correct symbol for its position in the child spec / strategy tuple; module names match the `start_link` MFAs and modules lists.
-Axes examined: strategy atom, restart-type atom, worker-type atom, child module names | Not examined: none.
+**Wrong atom / wrong symbol**\
+Reason: Every atom (`elixir_config`, `elixir_code_server`, `permanent`, `worker`, `one_for_one`, `ok`) is a real, correct symbol for its position in the child spec / strategy tuple; module names match the `start_link` MFAs and modules lists.\
+Axes examined: strategy atom, restart-type atom, worker-type atom, child module names | Not examined: none.\
 Basis: verified
 
-**State / accumulator threading error**
-Reason: No state threading, accumulators, or rebinding — `init/1` builds a constant list and returns it.
-Axes examined: variable rebind, accumulator reuse | Not examined: none (no variables threaded).
+**State / accumulator threading error**\
+Reason: No state threading, accumulators, or rebinding — `init/1` builds a constant list and returns it.\
+Axes examined: variable rebind, accumulator reuse | Not examined: none (no variables threaded).\
 Basis: verified
 
-**Off-by-one / wrong arithmetic**
-Reason: The only integers are the shutdown timeout (`2000`), restart intensity (`3`), and period (`10`); all are plain literals with no arithmetic and are valid supervisor parameters.
-Axes examined: shutdown value, intensity, period | Not examined: none.
+**Off-by-one / wrong arithmetic**\
+Reason: The only integers are the shutdown timeout (`2000`), restart intensity (`3`), and period (`10`); all are plain literals with no arithmetic and are valid supervisor parameters.\
+Axes examined: shutdown value, intensity, period | Not examined: none.\
 Basis: verified
 
-**Contract violation**
-Reason: `init/1` returns the documented `{ok, {SupFlags, [ChildSpec]}}` shape exactly, using the accepted legacy tuple forms for both flags and children.
-Axes examined: return-tuple shape, child-spec arity, sup-flags arity | Not examined: none.
+**Contract violation**\
+Reason: `init/1` returns the documented `{ok, {SupFlags, [ChildSpec]}}` shape exactly, using the accepted legacy tuple forms for both flags and children.\
+Axes examined: return-tuple shape, child-spec arity, sup-flags arity | Not examined: none.\
 Basis: verified
 
-**Crash on stray / unexpected input**
-Reason: The only input is `init/1`'s argument, fixed to `ok` by the sole caller; no external/untrusted data reaches this module.
-Axes examined: `init` arg value | Not examined: none.
+**Crash on stray / unexpected input**\
+Reason: The only input is `init/1`'s argument, fixed to `ok` by the sole caller; no external/untrusted data reaches this module.\
+Axes examined: `init` arg value | Not examined: none.\
 Basis: verified
 
-**Resource leak on error path**
-Reason: The module allocates no resources; child processes are owned and cleaned up by the OTP supervisor, not by this code.
-Axes examined: file/ETS/process/monitor creation | Not examined: none (none created here).
+**Resource leak on error path**\
+Reason: The module allocates no resources; child processes are owned and cleaned up by the OTP supervisor, not by this code.\
+Axes examined: file/ETS/process/monitor creation | Not examined: none (none created here).\
 Basis: verified
 
-**Silent corruption**
-Reason: The function returns a static, correct configuration structure; there is no data transformation that could silently produce a wrong-but-plausible value.
-Axes examined: returned structure content | Not examined: none.
+**Silent corruption**\
+Reason: The function returns a static, correct configuration structure; there is no data transformation that could silently produce a wrong-but-plausible value.\
+Axes examined: returned structure content | Not examined: none.\
 Basis: verified
 
-**Infinite loop / hang**
-Reason: No recursion, no `receive`, no loops — `init/1` returns immediately.
-Axes examined: recursion, receive, loop | Not examined: none.
+**Infinite loop / hang**\
+Reason: No recursion, no `receive`, no loops — `init/1` returns immediately.\
+Axes examined: recursion, receive, loop | Not examined: none.\
 Basis: verified
 
-**Quadratic-where-linear**
-Reason: No iteration or list accumulation; the worker list is a fixed 2-element literal.
-Axes examined: list building | Not examined: none.
+**Quadratic-where-linear**\
+Reason: No iteration or list accumulation; the worker list is a fixed 2-element literal.\
+Axes examined: list building | Not examined: none.\
 Basis: verified
 
-**Repeated work**
-Reason: `init/1` runs once at supervisor start and does no per-call recomputation of patterns or scans.
-Axes examined: per-call recompute | Not examined: none.
+**Repeated work**\
+Reason: `init/1` runs once at supervisor start and does no per-call recomputation of patterns or scans.\
+Axes examined: per-call recompute | Not examined: none.\
 Basis: verified
 
-**Dead / unreachable code**
-Reason: Both exports are reachable: `start_link/0` from module `elixir` (per callgraph slice) and `init/1` from the `supervisor` behaviour via that `start_link/0`.
-Axes examined: export reachability | Not examined: none.
+**Dead / unreachable code**\
+Reason: Both exports are reachable: `start_link/0` from module `elixir` (per callgraph slice) and `init/1` from the `supervisor` behaviour via that `start_link/0`.\
+Axes examined: export reachability | Not examined: none.\
 Basis: verified
 
-**Documented behaviour mismatch**
-Reason: No docstrings or `-spec`s to contradict; the inline comments accurately describe the legal value ranges for each child-spec field and match the literals used.
-Axes examined: comment-vs-code for restart/shutdown/type/modules | Not examined: none.
+**Documented behaviour mismatch**\
+Reason: No docstrings or `-spec`s to contradict; the inline comments accurately describe the legal value ranges for each child-spec field and match the literals used.\
+Axes examined: comment-vs-code for restart/shutdown/type/modules | Not examined: none.\
 Basis: verified
 
-**Race condition / shared mutable state**
-Reason: `init/1` is pure and touches no shared state; process/table ownership and concurrency are handled by the supervised gen_servers, not here.
-Axes examined: shared-state access | Not examined: none (none present).
+**Race condition / shared mutable state**\
+Reason: `init/1` is pure and touches no shared state; process/table ownership and concurrency are handled by the supervised gen_servers, not here.\
+Axes examined: shared-state access | Not examined: none (none present).\
 Basis: verified
 
-**Wrong scope / order of operations**
-Reason: There is a single expression with no side effects and no ordering dependency.
-Axes examined: side-effect ordering | Not examined: none.
+**Wrong scope / order of operations**\
+Reason: There is a single expression with no side effects and no ordering dependency.\
+Axes examined: side-effect ordering | Not examined: none.\
 Basis: verified
 
-**Encoding / unicode mishandling**
-Reason: No string, binary, or chardata handling anywhere in the file.
-Axes examined: string/binary handling | Not examined: none (none present).
+**Encoding / unicode mishandling**\
+Reason: No string, binary, or chardata handling anywhere in the file.\
+Axes examined: string/binary handling | Not examined: none (none present).\
 Basis: verified
 
 ### Did I verify this?

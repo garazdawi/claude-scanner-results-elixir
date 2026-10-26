@@ -18,64 +18,64 @@ No findings.
 
 ### Ruled out
 
-- **`beam_location/1` + `validate_module_name/1` → `.beam` path (`elixir_module.erl:133-140,582-589`; sink `elixir_compiler.erl:247`)** — Path handling.
-Reason — `validate_module_name` rejects `/` and `\`, which is exactly and only what enables directory traversal in the `filename:join(Dir, Name ++ ".beam")` construction used to write the BEAM; without a separator, `".."` becomes the literal file `"...beam"`, and reaching this at all requires compile-time code execution (strictly stronger than writing a stray `.beam`).
-Axes examined: dot-segments (`..`), separator variant (`/`, `\`), NUL, `:` (Windows drive/ADS) | Not examined: repeated separators, Unicode NFC/NFD, trailing dot/space (none of which yield traversal absent a separator, the blocked axis).
+- **`beam_location/1` + `validate_module_name/1` → `.beam` path (`elixir_module.erl:133-140,582-589`; sink `elixir_compiler.erl:247`)** — Path handling.\
+Reason — `validate_module_name` rejects `/` and `\`, which is exactly and only what enables directory traversal in the `filename:join(Dir, Name ++ ".beam")` construction used to write the BEAM; without a separator, `".."` becomes the literal file `"...beam"`, and reaching this at all requires compile-time code execution (strictly stronger than writing a stray `.beam`).\
+Axes examined: dot-segments (`..`), separator variant (`/`, `\`), NUL, `:` (Windows drive/ADS) | Not examined: repeated separators, Unicode NFC/NFD, trailing dot/space (none of which yield traversal absent a separator, the blocked axis).\
 Basis — verified. (NUL passes `filename:join` but fails at `file:write_file` → self-DoS only; `:` is a Windows-ADS curiosity, both code-execution-gated with zero marginal capability.)
 
-- **`eval_callbacks/5` → `expand_callback/6` → `elixir:eval_forms/3` + `apply/3` (`elixir_module.erl:513-542`)** — Code execution.
-Reason — evaluates the module's own `@before_compile`/`@after_compile`/`@after_verify` callback references; this is compile-time metaprogramming by design, and callable only after the attacker already controls the compiling code.
-Axes examined: callback origin (module-authored accumulate attrs), code-exec gating | Not examined: none.
+- **`eval_callbacks/5` → `expand_callback/6` → `elixir:eval_forms/3` + `apply/3` (`elixir_module.erl:513-542`)** — Code execution.\
+Reason — evaluates the module's own `@before_compile`/`@after_compile`/`@after_verify` callback references; this is compile-time metaprogramming by design, and callable only after the attacker already controls the compiling code.\
+Axes examined: callback origin (module-authored accumulate attrs), code-exec gating | Not examined: none.\
 Basis — verified.
 
-- **`code:load_binary/3` (`elixir_module.erl:238`)** — Code execution.
-Reason — loads the just-compiled module's own binary; loading compiled code is the module's purpose, and the `BeamLocation` filename argument is informational (not opened/written by `load_binary`).
-Axes examined: binary origin (self-compiled), filename-arg use | Not examined: none.
+- **`code:load_binary/3` (`elixir_module.erl:238`)** — Code execution.\
+Reason — loads the just-compiled module's own binary; loading compiled code is the module's purpose, and the `BeamLocation` filename argument is informational (not opened/written by `load_binary`).\
+Axes examined: binary origin (self-compiled), filename-arg use | Not examined: none.\
 Basis — verified.
 
-- **`validate_compile_opts/5` opt pass-through incl. `{parse_transform, _}` (`elixir_module.erl:287-307`)** — Code execution.
-Reason — the catch-all forwards `@compile` options (including a deprecated, *warned* `parse_transform`) to `elixir_erl:compile`; running an author-specified parse transform is by-design compile-time code exec, gated behind the same boundary.
-Axes examined: opt origin (`@compile` attrs + `erlc_options`), warn-vs-error handling | Not examined: none.
+- **`validate_compile_opts/5` opt pass-through incl. `{parse_transform, _}` (`elixir_module.erl:287-307`)** — Code execution.\
+Reason — the catch-all forwards `@compile` options (including a deprecated, *warned* `parse_transform`) to `elixir_erl:compile`; running an author-specified parse transform is by-design compile-time code exec, gated behind the same boundary.\
+Axes examined: opt origin (`@compile` attrs + `erlc_options`), warn-vs-error handling | Not examined: none.\
 Basis — verified.
 
-- **`exports_md5/3` → `erlang:md5(term_to_binary(..., [deterministic]))` (`elixir_module.erl:26-27,277-285`)** — Cryptography / round-trip.
-Reason — MD5 is a change-detection checksum over the module's own sorted exports (recompilation triggering), not a security hash; it is an *encode* (no `binary_to_term`), and a collision would at most affect the attacker's own build's recompile decisions.
-Axes examined: hash purpose (non-security), encode-vs-decode direction, attacker control of own inputs | Not examined: none.
+- **`exports_md5/3` → `erlang:md5(term_to_binary(..., [deterministic]))` (`elixir_module.erl:26-27,277-285`)** — Cryptography / round-trip.\
+Reason — MD5 is a change-detection checksum over the module's own sorted exports (recompilation triggering), not a security hash; it is an *encode* (no `binary_to_term`), and a collision would at most affect the attacker's own build's recompile decisions.\
+Axes examined: hash purpose (non-security), encode-vs-decode direction, attacker control of own inputs | Not examined: none.\
 Basis — verified.
 
-- **Process-dictionary state: `elixir_compiler_modules`, `elixir_compiler_info`, `elixir_module_binaries`, `elixir_compiler_dest`, `elixir_checker_info`, `elixir_code_diagnostics` (`elixir_module.erl:15-24,157,162-172,240,265,582-624`)** — Shared mutable state.
-Reason — all reads/writes are process-local to the compiling process; `CompilerModules` is saved before and restored on both the success path (line 240) and the `after` clause (line 265), so no cross-request or cross-tenant leakage.
-Axes examined: scope (process-local vs global), save/restore balance across success/catch/after | Not examined: none.
+- **Process-dictionary state: `elixir_compiler_modules`, `elixir_compiler_info`, `elixir_module_binaries`, `elixir_compiler_dest`, `elixir_checker_info`, `elixir_code_diagnostics` (`elixir_module.erl:15-24,157,162-172,240,265,582-624`)** — Shared mutable state.\
+Reason — all reads/writes are process-local to the compiling process; `CompilerModules` is saved before and restored on both the success path (line 240) and the `after` clause (line 265), so no cross-request or cross-tenant leakage.\
+Axes examined: scope (process-local vs global), save/restore balance across success/catch/after | Not examined: none.\
 Basis — verified.
 
-- **Public ETS tables `DataSet`/`DataBag` (`elixir_module.erl:411,425`)** — Shared mutable state.
-Reason — created `public`, but the tids are held by the compiling process; a co-tenant BEAM process poisoning them is explicitly outside the folder threat model's boundary and requires local code execution.
-Axes examined: table visibility, tid custody, threat-model scope | Not examined: none (co-tenant declared out of scope).
+- **Public ETS tables `DataSet`/`DataBag` (`elixir_module.erl:411,425`)** — Shared mutable state.\
+Reason — created `public`, but the tids are held by the compiling process; a co-tenant BEAM process poisoning them is explicitly outside the folder threat model's boundary and requires local code execution.\
+Axes examined: table visibility, tid custody, threat-model scope | Not examined: none (co-tenant declared out of scope).\
 Basis — verified.
 
-- **`warn_unused_attributes/4` ETS match-spec construction (`elixir_module.erl:557-564`)** — ETS match-spec injection / template.
-Reason — `Attr` is spliced into the match-spec *head* `{Attr,'_','$1','_'}` as a literal value to match (data position), not into the guard/body as an operation; the values are programmer-declared attribute atoms, so there is no injection into executable spec positions.
-Axes examined: splice position (head/data vs guard/body), value provenance (attribute atoms) | Not examined: none.
+- **`warn_unused_attributes/4` ETS match-spec construction (`elixir_module.erl:557-564`)** — ETS match-spec injection / template.\
+Reason — `Attr` is spliced into the match-spec *head* `{Attr,'_','$1','_'}` as a literal value to match (data position), not into the guard/body as an operation; the values are programmer-declared attribute atoms, so there is no injection into executable spec positions.\
+Axes examined: splice position (head/data vs guard/body), value provenance (attribute atoms) | Not examined: none.\
 Basis — verified.
 
-- **`check_module_availability/3` → `code:ensure_loaded/1` (`elixir_module.erl:375-395`)** — Code execution / name race.
-Reason — used only to emit a redefinition *warning*; the module name is the one being defined, and the separate `elixir_code_server:call({defmodule,...})` (line 471) is the authoritative single-writer uniqueness gate — the intervening window affects a warning, not a security decision.
-Axes examined: effect of the check (warn-only), authoritative registration path | Not examined: none.
+- **`check_module_availability/3` → `code:ensure_loaded/1` (`elixir_module.erl:375-395`)** — Code execution / name race.\
+Reason — used only to emit a redefinition *warning*; the module name is the one being defined, and the separate `elixir_code_server:call({defmodule,...})` (line 471) is the authoritative single-writer uniqueness gate — the intervening window affects a warning, not a security decision.\
+Axes examined: effect of the check (warn-only), authoritative registration path | Not examined: none.\
 Basis — verified.
 
-- **`elixir_code_server:call({defmodule|undefmodule,...})` (`elixir_module.erl:268,471`)** — Deserialisation / internal protocol.
-Reason — internal gen_server messages carrying local terms (module atom, ETS tids, self() pid); origin is this module, no external bytes.
-Axes examined: message origin (internal), term provenance | Not examined: none.
+- **`elixir_code_server:call({defmodule|undefmodule,...})` (`elixir_module.erl:268,471`)** — Deserialisation / internal protocol.\
+Reason — internal gen_server messages carrying local terms (module atom, ETS tids, self() pid); origin is this module, no external bytes.\
+Axes examined: message origin (internal), term provenance | Not examined: none.\
 Basis — verified.
 
-- **`next_counter/1`, `taint/1`, `cache_env/1`, `get_cached_env/1`, `write_cache/3`, `read_cache/2` (`elixir_module.erl:56-103`)** — Shared mutable state / resource.
-Reason — operate on the module's own two ETS tables with programmer-controlled keys and integer counters; no external-byte instantiation, no unbounded attacker-driven growth beyond the module's own source size.
-Axes examined: table ownership, key provenance, growth bound | Not examined: none.
+- **`next_counter/1`, `taint/1`, `cache_env/1`, `get_cached_env/1`, `write_cache/3`, `read_cache/2` (`elixir_module.erl:56-103`)** — Shared mutable state / resource.\
+Reason — operate on the module's own two ETS tables with programmer-controlled keys and integer counters; no external-byte instantiation, no unbounded attacker-driven growth beyond the module's own source size.\
+Axes examined: table ownership, key provenance, growth bound | Not examined: none.\
 Basis — verified.
 
-- **`binary_to_term` / dynamic atom creation / `os:cmd` / `open_port` / `crypto:rand_uniform`** — Always-flag classes.
-Reason — none present in this file (only `term_to_binary` encode at line 27; no `list_to_atom`/`binary_to_atom`, no OS-process spawn, no CSPRNG misuse).
-Axes examined: full-file grep for each named call | Not examined: none.
+- **`binary_to_term` / dynamic atom creation / `os:cmd` / `open_port` / `crypto:rand_uniform`** — Always-flag classes.\
+Reason — none present in this file (only `term_to_binary` encode at line 27; no `list_to_atom`/`binary_to_atom`, no OS-process spawn, no CSPRNG misuse).\
+Axes examined: full-file grep for each named call | Not examined: none.\
 Basis — verified.
 
 ### Did I verify this?

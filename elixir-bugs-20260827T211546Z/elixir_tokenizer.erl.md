@@ -30,7 +30,7 @@ Re-review of the single substantiated defect (asymmetric atom-length check: byte
     - 128×U+00E4 → **256 bytes / 128 chars** → `binary_to_atom` **succeeds** (`{ok,128}`).
     - 200×U+00E4 → 400 bytes / 200 chars → **succeeds** (`{ok,200}`).
     - 255×U+00E4 → 510 bytes / 255 chars → **succeeds** (limit is inclusive at 255).
-    - 256×U+00E4 → 256 chars → `system_limit` (fails).
+    - 256×U+00E4 → 256 chars → `system_limit` (fails).\
     This proves the Erlang atom limit is **255 code points, not bytes**, so the `byte_size > 255` guard over-rejects every valid multibyte atom in the 256-byte…255-char window.
 
 ## Risks / caveats

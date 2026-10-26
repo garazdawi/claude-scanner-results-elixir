@@ -22,44 +22,44 @@ This module is invoked only from `elixir_expand`, `elixir_def`, and `elixir_fn` 
 
 ### Ruled out
 
-- **Macro expansion / code execution** — `'Elixir.Macro':expand_once/2` (line 482), `elixir_expand:expand/3` and `expand_args/3` (throughout).
-Reason: these are the compiler expanding the source it was asked to compile; reachable only via `Code.compile_string`/`eval_string`/`eval_quoted`/`Macro.expand*`, all documented to run arbitrary code, so exploiting them yields no capability beyond what the entry point already grants.
-Axes examined: reachability paths — parse-only (`Code.string_to_quoted` → does not reach this module), compile/eval (reaches, documented code-exec) | Not examined: none.
+- **Macro expansion / code execution** — `'Elixir.Macro':expand_once/2` (line 482), `elixir_expand:expand/3` and `expand_args/3` (throughout).\
+Reason: these are the compiler expanding the source it was asked to compile; reachable only via `Code.compile_string`/`eval_string`/`eval_quoted`/`Macro.expand*`, all documented to run arbitrary code, so exploiting them yields no capability beyond what the entry point already grants.\
+Axes examined: reachability paths — parse-only (`Code.string_to_quoted` → does not reach this module), compile/eval (reaches, documented code-exec) | Not examined: none.\
 Basis: verified (traced callgraph + `elixir_expand.erl:13-14,819,914,1102,1109`; `grep elixir_clauses:` shows only expansion-phase callers).
 
-- **Parallel-match cycle detection + `unpack_match` recursion** — `parallel_match/4`, `store_cycles/3`, `validate_cycles/4`, `recur_cycles/8` (lines 16-153). Class: Resource consumption.
-Reason: dispositively behind the compile-time/code-exec boundary (no uplift); additionally polynomial — the `is_map_key(Current, Seen)` gate (line 99) caps total node processings at V, and measured scaling stays within a constant factor of a no-`=` control pattern of equal size.
-Axes examined: single large cycle, long alias chain, independent pairs, repeated 1-degree cycle, plain-tuple control, sizes to 8000 vars | Not examined: none that change the ruling (the boundary alone is dispositive).
+- **Parallel-match cycle detection + `unpack_match` recursion** — `parallel_match/4`, `store_cycles/3`, `validate_cycles/4`, `recur_cycles/8` (lines 16-153). Class: Resource consumption.\
+Reason: dispositively behind the compile-time/code-exec boundary (no uplift); additionally polynomial — the `is_map_key(Current, Seen)` gate (line 99) caps total node processings at V, and measured scaling stays within a constant factor of a no-`=` control pattern of equal size.\
+Axes examined: single large cycle, long alias chain, independent pairs, repeated 1-degree cycle, plain-tuple control, sizes to 8000 vars | Not examined: none that change the ruling (the boundary alone is dispositive).\
 Basis: verified (ran scaling + control-isolation; read the memoization gate).
 
-- **`expand_rescue` re-expansion loop** — `expand_rescue({_, Meta, _} = Arg, …)` → `Macro.expand_once` → recurse (lines 481-485). Class: Resource consumption / non-termination.
-Reason: the `Arg -> false` fixpoint check terminates ordinary cases; only a user-authored macro that emits a different term on every expansion loops, which is a self-inflicted compile-time hang behind the code-exec boundary.
-Axes examined: fixpoint-reaching macros (terminate), non-3-tuple args (wrapped at line 488, terminate) | Not examined: an actual divergent/alternating macro repro (would hang; not run).
+- **`expand_rescue` re-expansion loop** — `expand_rescue({_, Meta, _} = Arg, …)` → `Macro.expand_once` → recurse (lines 481-485). Class: Resource consumption / non-termination.\
+Reason: the `Arg -> false` fixpoint check terminates ordinary cases; only a user-authored macro that emits a different term on every expansion loops, which is a self-inflicted compile-time hang behind the code-exec boundary.\
+Axes examined: fixpoint-reaching macros (terminate), non-3-tuple args (wrapped at line 488, terminate) | Not examined: an actual divergent/alternating macro repro (would hang; not run).\
 Basis: asserted. Depends on: `Elixir.Macro.expand_once/2` — performs a single expansion step and returns the input unchanged at a fixpoint; and compile-time-only reachability via `elixir_expand`.
 
-- **`format_error/1` diagnostics** — `io_lib:format` with `'Elixir.Macro':to_string(Expr)` values (lines 558-630). Class: Template/interpolation, Human-in-the-loop.
-Reason: all format strings are compile-time string literals; attacker-influenced values reach only `~ts`/`~p` argument positions (never the format-string position), so there is no format-directive injection, and source-snippet echo in compiler errors is by design.
-Axes examined: `~`-directive injection via data (data cannot reach the format string), newline/escape content in echoed snippets (by-design source echo) | Not examined: downstream terminal/log rendering of diagnostics (out of file).
+- **`format_error/1` diagnostics** — `io_lib:format` with `'Elixir.Macro':to_string(Expr)` values (lines 558-630). Class: Template/interpolation, Human-in-the-loop.\
+Reason: all format strings are compile-time string literals; attacker-influenced values reach only `~ts`/`~p` argument positions (never the format-string position), so there is no format-directive injection, and source-snippet echo in compiler errors is by design.\
+Axes examined: `~`-directive injection via data (data cannot reach the format string), newline/escape content in echoed snippets (by-design source echo) | Not examined: downstream terminal/log rendering of diagnostics (out of file).\
 Basis: verified (read every `format_error` clause; all first args are literals).
 
-- **Validation predicates** — `normalize_rescue/1` (491-494), `assert_at_most_once/4` (535-541), `validate_cycles/4` (93-96). Class: Validation.
-Reason: they enforce compile-time well-formedness of the developer's own clause syntax, not a safe/unsafe decision on external data crossing a trust boundary; a wrong answer produces a compile error or rejects valid code (correctness), never a security bypass.
-Axes examined: list-of-atoms vs non-atom-list (`normalize_rescue`), duplicate-option counting/order (`assert_at_most_once`) | Not examined: none security-relevant.
+- **Validation predicates** — `normalize_rescue/1` (491-494), `assert_at_most_once/4` (535-541), `validate_cycles/4` (93-96). Class: Validation.\
+Reason: they enforce compile-time well-formedness of the developer's own clause syntax, not a safe/unsafe decision on external data crossing a trust boundary; a wrong answer produces a compile error or rejects valid code (correctness), never a security bypass.\
+Axes examined: list-of-atoms vs non-atom-list (`normalize_rescue`), duplicate-option counting/order (`assert_at_most_once`) | Not examined: none security-relevant.\
 Basis: verified (read).
 
-- **`version` counter increment** — `S3#elixir_ex{version=Counter+1}` (line 337). Class: Counter rollover / wrap.
-Reason: Erlang integers are arbitrary-precision bignums; `Counter+1` cannot wrap or overflow.
-Axes examined: width, overflow | Not examined: none.
+- **`version` counter increment** — `S3#elixir_ex{version=Counter+1}` (line 337). Class: Counter rollover / wrap.\
+Reason: Erlang integers are arbitrary-precision bignums; `Counter+1` cannot wrap or overflow.\
+Axes examined: width, overflow | Not examined: none.\
 Basis: verified (Erlang integer semantics).
 
-- **Defensive/arity-guard clauses** — `expand_catch` ≥4-arg `when` (426), `expand_head` ≥3-arg `when` (500), `multiple_after_clauses_in_receive` (314), `invalid_rescue_clause` (446), `with` unexpected option (329), `case`/`cond`/`receive`/`try` missing/invalid options (255-402). Class: Dead / unreachable defensive code.
-Reason: each is reachable from a documented construct and produces a clean `CompileError` (not an uncaught crash), so none is dead and none is a crash vector.
-Axes examined: over-arity `when`-clauses, duplicate `after`, non-atom rescue lists, unknown `with` option, empty `case` | Not examined: none.
+- **Defensive/arity-guard clauses** — `expand_catch` ≥4-arg `when` (426), `expand_head` ≥3-arg `when` (500), `multiple_after_clauses_in_receive` (314), `invalid_rescue_clause` (446), `with` unexpected option (329), `case`/`cond`/`receive`/`try` missing/invalid options (255-402). Class: Dead / unreachable defensive code.\
+Reason: each is reachable from a documented construct and produces a clean `CompileError` (not an uncaught crash), so none is dead and none is a crash vector.\
+Axes examined: over-arity `when`-clauses, duplicate `after`, non-atom rescue lists, unknown `with` option, empty `case` | Not examined: none.\
 Basis: verified (ran `defs.exs`; all six inputs → `{:clean_error, CompileError}`).
 
-- **Absent sink classes** — Deserialisation, File ops, Path handling, Archive extraction, Command execution, Network, Cryptography, Memory safety/NIFs, Shared mutable state (process dict / ETS / app env), Concurrency, Atom-table exhaustion (`*_to_atom`).
-Reason: none of these call shapes exist in the file.
-Axes examined: full-file grep for `binary_to_term|*_to_atom|open_port|os:cmd|file:|filelib:|xmerl|crypto:|rand_uniform|spawn|ets:|put(/get(/erase(|:consult|load_nif` | Not examined: none.
+- **Absent sink classes** — Deserialisation, File ops, Path handling, Archive extraction, Command execution, Network, Cryptography, Memory safety/NIFs, Shared mutable state (process dict / ETS / app env), Concurrency, Atom-table exhaustion (`*_to_atom`).\
+Reason: none of these call shapes exist in the file.\
+Axes examined: full-file grep for `binary_to_term|*_to_atom|open_port|os:cmd|file:|filelib:|xmerl|crypto:|rand_uniform|spawn|ets:|put(/get(/erase(|:consult|load_nif` | Not examined: none.\
 Basis: verified (ran grep; only `maps:get`/`maps:merge`/`map_get` matched).
 
 ### Did I verify this?

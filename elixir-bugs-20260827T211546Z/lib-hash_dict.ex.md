@@ -18,7 +18,7 @@ The four protocol implementations for `HashDict` (`Enumerable`, `Collectable`, `
 - **Issue** — Each impl computes `module = String.to_unsafe_atom("HashDict")` to name the module it delegates to (the "avoid deprecation warning" trick). Elixir module atoms are prefixed with `Elixir.`, so the `HashDict` module is the atom `:"Elixir.HashDict"`. `String.to_unsafe_atom("HashDict")` produces the *unprefixed* atom `:HashDict`, which is not a loaded module. Every subsequent `module.reduce/put/fetch/size/to_list` call therefore dispatches to a non-existent module. The correct source (matching upstream) is `String.to_atom("Elixir.HashDict")`.
 - **Class** — Pattern match on the wrong shape / Contract violation (wrong module atom → protocol contract unmet).
 - **Impact** — Every documented public path that goes through these protocols is broken: `Enum.*` over a `HashDict` (`Enum.to_list/1`, `Enum.map/2`, `Enum.member?/2`, `Enum.count/1`, `Stream` consumers), building one via `Enum.into/2` / `for ... into: HashDict.new()` (`Collectable`), and `inspect/1` / `IO.inspect/1` of a `HashDict`. All raise `UndefinedFunctionError (module :HashDict is not available)` at runtime. The direct `HashDict.*` API still works, but the entire protocol surface is unusable.
-- **Evidence** — `verified`.
+- **Evidence** — `verified`.\
   Atom produced:
   ```
   $ elixir -e 'IO.inspect(String.to_unsafe_atom("HashDict")); IO.inspect(HashDict == String.to_atom("Elixir.HashDict"))'

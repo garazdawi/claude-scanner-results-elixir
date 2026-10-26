@@ -21,11 +21,11 @@ Both crashes are confirmed end-to-end through the documented `mix source` entry 
 - **Class:** Missing clause / non-total function
 - **Impact:** A user who mistypes the `MODULE.FUN/ARITY` form — e.g. a non-integer arity (`mix source Enum.map/baz`) or an extra call segment (`mix source Enum.foo.bar`) — gets a cryptic `FunctionClauseError` from deep inside `IEx.Introspection.source_location/1`, complete with an internal AST dump and stack trace, instead of the intended clean `Mix.raise("Invalid expression: …")`/`"Could not find source …"`. The error message tells the caller nothing about what to fix.
 - **Evidence:** `verified`. In a fresh `mix new` project:
-  - `mix source Enum.foo.bar` →
+  - `mix source Enum.foo.bar` →\
     `** (FunctionClauseError) no function clause matching in IEx.Introspection.source_location/1` with argument `{{{:., …, [{:__aliases__, …, [:Enum]}, :foo]}, …, []}, :bar}`, raised at `lib/mix/tasks/source.ex:48`.
-  - `mix source Enum.map/baz` →
+  - `mix source Enum.map/baz` →\
     `** (FunctionClauseError) no function clause matching in IEx.Introspection.source_location/1` with argument `{Enum, :map, {:baz, [line: 1], nil}}`, raised at `lib/mix/tasks/source.ex:48`.
-  - Control `mix source Enum.map/2` correctly prints `.../enum.ex:1722`.
+  - Control `mix source Enum.map/2` correctly prints `.../enum.ex:1722`.\
   Root cause: `decompose/2` can return a 2-tuple whose module element is a non-atom call AST (from `Mod.fun.other`) or a 3-tuple whose arity is a non-integer AST (from `Fun/nonInteger`). Both are non-`:error`, so `run/1` passes them to `source_location/1`, whose three clauses are all guarded (`is_atom`, `is_integer(arity)`) with no catch-all. (Contrast IEx's own `open/1` and `source/1`, which decompose then dispatch through clauses that include an `invalid` catch-all; `source.ex` omits that guard.)
 - **Suggested fix:** Before calling `source_location/1`, constrain the accepted shapes, e.g. match `decomposition` against `mod when is_atom(mod)`, `{mod, fun} when is_atom(mod) and is_atom(fun)`, and `{mod, fun, arity} when is_atom(mod) and is_atom(fun) and is_integer(arity)`, and fall through to `Mix.raise("Invalid expression: #{module}")` for anything else — mirroring the existing `:error` handling.
 

@@ -24,8 +24,8 @@ _Re-reviewed on 2026-08-28. Reproductions run against the source file compiled d
 - **Issue** — The clause `def prune([h | t]) when h in 0..1_114_111, do: [h | prune(t)]` keeps any integer up to `0x10FFFF`, but the UTF‑16 surrogate range `0xD800..0xDFFF` are *invalid* Unicode code points that cannot appear in valid UTF‑8. `prune/1` is documented as *"Prunes invalid Unicode code points from lists and invalid UTF-8 bytes"* and is *"Typically called after formatting when the data cannot be printed."* A surrogate in the input list passes the guard and survives untouched, so the value `prune/1` returns still cannot be encoded — defeating the function's entire purpose. (The binary path `prune_binary/2` at `formatter.ex:364-366` is unaffected because `<<h::utf8>>` already rejects surrogate encodings, sending them to the `<<_, t::binary>>` replacement clause; only the list-guard is wrong.)
 - **Suggested fix** — Split the guard to exclude the surrogate block: `def prune([h | t]) when h in 0..0xD7FF or h in 0xE000..0x10FFFF, do: [h | prune(t)]` (0x10FFFF == 1_114_111). Surrogates then fall through to `def prune([h | t]), do: [prune(h) | prune(t)]` → `prune(_) -> @replacement`.
 - **Impact / threat** — A caller who invokes `prune/1` to make unprintable log data safe still gets data that `:unicode.characters_to_binary/1` rejects (demonstrated below — the pruned value itself is unencodable, so the defect is fully observable on `prune/1`'s own return value, not an assumption about a downstream device write). Log messages/metadata can contain attacker- or peer-influenced code-point lists (e.g. a decoded external string), so this is reachable with untrusted data through the documented public API.
-- **Evidence** — `verified` (re-run against directly-compiled source).
-  `F.prune([0xD800, ?a])` → `[55296, 97]` (surrogate not pruned); `:unicode.characters_to_binary(F.prune([0xD800, ?a]))` → `{:error, "", [55296, 97]}` — the returned "sanitized" value fails to encode, in this file's own output.
+- **Evidence** — `verified` (re-run against directly-compiled source).\
+  `F.prune([0xD800, ?a])` → `[55296, 97]` (surrogate not pruned); `:unicode.characters_to_binary(F.prune([0xD800, ?a]))` → `{:error, "", [55296, 97]}` — the returned "sanitized" value fails to encode, in this file's own output.\
   Boundary sweep (compiled from source):
   ```
   D7FF: pruned=[55295] encodes?=true
@@ -63,28 +63,28 @@ _Re-reviewed on 2026-08-28. Reproductions run against the source file compiled d
 
 ### Ruled out
 
-- **`compile/1` `String.to_unsafe_atom` atom-table growth**
-  Axes examined: input-provenance (compile-time operator config vs runtime), reuse (atoms created once per `compile/1` at handler setup). | Not examined: none.
+- **`compile/1` `String.to_unsafe_atom` atom-table growth**\
+  Axes examined: input-provenance (compile-time operator config vs runtime), reuse (atoms created once per `compile/1` at handler setup). | Not examined: none.\
   The atoms come from operator-supplied compile-time format strings compiled once; invalid ones raise before any reuse. Not attacker-driven, not a runtime path.
 
-- **`colorize/1` `Map.fetch!(colors, level)` KeyError on `:warn`**
-  Axes examined: legacy `:warn` level (tried — raises `KeyError`), all 8 OTP levels (tried — format cleanly). | Not examined: none.
+- **`colorize/1` `Map.fetch!(colors, level)` KeyError on `:warn`**\
+  Axes examined: legacy `:warn` level (tried — raises `KeyError`), all 8 OTP levels (tried — format cleanly). | Not examined: none.\
   A well-formed `:logger.log_event` carries OTP levels (`:warning`, …), all present in the colors map. Reaching the KeyError requires an event that violates the `:logger.log_event` level contract, and only via the `@doc false` `format/2`. Out of scope (caller contract violation).
 
-- **`metadata(:domain, [head | tail])` → `Atom.to_string` on non-atom (`ArgumentError`)**
-  Axes examined: mixed `[:a, "b"]` domain list (tried via `format/5` — raises). | Not examined: none.
+- **`metadata(:domain, [head | tail])` → `Atom.to_string` on non-atom (`ArgumentError`)**\
+  Axes examined: mixed `[:a, "b"]` domain list (tried via `format/5` — raises). | Not examined: none.\
   `:domain` is `[atom()]` per the `:logger` metadata contract; a mixed list violates the caller's contract. Out of scope.
 
-- **`metadata/2` dropping charlist values** (`[foo: ~c"hi"]` → `""`)
-  Axes examined: charlist metadata value (tried — dropped). | Not examined: none.
+- **`metadata/2` dropping charlist values** (`[foo: ~c"hi"]` → `""`)\
+  Axes examined: charlist metadata value (tried — dropped). | Not examined: none.\
   The module doc explicitly excludes charlists ("Implement the `String.Chars` protocol (except for charlists)"). Documented behavior, not a bug.
 
-- **`add_reset/1` CRLF/nested-chardata handling**
-  Axes examined: binary tail, `[?\r,?\n]` tail, `[?\n]` tail, integer tail, nested-list tail (all tried via `format/2` with colors). | Not examined: none.
+- **`add_reset/1` CRLF/nested-chardata handling**\
+  Axes examined: binary tail, `[?\r,?\n]` tail, `[?\n]` tail, integer tail, nested-list tail (all tried via `format/2` with colors). | Not examined: none.\
   Reset is consistently placed before the trailing newline in every traced case. No defect.
 
-- **`compile/1`, `format/5`, `format_time/1`, `format_date/1`, `truncate/2` doctests/examples**
-  Axes examined: published doctest inputs (all tried and matched: compile split, `"[info] hello"`, truncation marker `"hello (truncated)"`). | Not examined: none.
+- **`compile/1`, `format/5`, `format_time/1`, `format_date/1`, `truncate/2` doctests/examples**\
+  Axes examined: published doctest inputs (all tried and matched: compile split, `"[info] hello"`, truncation marker `"hello (truncated)"`). | Not examined: none.\
   No code/doc mismatch.
 
 ## Risks / caveats

@@ -7,7 +7,7 @@ Public API entry points (all in `EEx`):
 - `eval_string/3`, `eval_file/3` — compile then `Code.eval_quoted`.
 - `compile_string/2`, `compile_file/2` — return AST only.
 - `function_from_string/5`, `function_from_file/5` — macros that inject a compiled template as a module function.
-- `tokenize/2` — public since 1.14; exposes the token stream.
+- `tokenize/2` — public since 1.14; exposes the token stream.\
 Internals: `EEx.Compiler` (tokenizer + `generate_buffer` state machine), `EEx.Engine` (behaviour + default impl), `EEx.SmartEngine` (adds `@assign`).
 
 ## Trust / contract boundaries

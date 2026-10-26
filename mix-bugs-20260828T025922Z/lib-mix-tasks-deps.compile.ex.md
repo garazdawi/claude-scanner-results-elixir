@@ -58,7 +58,7 @@ Each first-pass hedge, and its resolution:
 1. **"exit-status checks … looked correct but were not executed end-to-end" (do_rebar3 / do_make / do_compile).** Resolved by reading this file, not by execution — the check is textually present at each sink:
    - `do_rebar3` line 283: `if Mix.shell().cmd({exec, args}, ...) != 0 do Mix.raise(...)`.
    - `shell_cmd!` line 346 (used by `do_make` via line 308 and `do_compile` via line 337): `if Mix.shell().cmd(command, ...) != 0 do Mix.raise(...)`.
-   - `do_mix` (lines 224–243) wraps `Mix.Task.run("compile", ...)` in `try/catch` and re-raises with `:erlang.raise(kind, reason, __STACKTRACE__)`, preserving the original stacktrace, and returns `match?({:ok, _}, res)` for the success signal.
+   - `do_mix` (lines 224–243) wraps `Mix.Task.run("compile", ...)` in `try/catch` and re-raises with `:erlang.raise(kind, reason, __STACKTRACE__)`, preserving the original stacktrace, and returns `match?({:ok, _}, res)` for the success signal.\
    EXTERNAL_CMD_NONZERO_HANDLED and ERROR_PROPAGATES_NOT_BADMATCHES are therefore satisfied. This is a whole-file property; an axis needing execution is not involved, so the hedge is cleared to `verified`.
 
 2. **`Mix.Dep.ok?/1` — "assumed behave as their names imply".** Read `dep.ex:470-471`: `def ok?(%Mix.Dep{status: {:ok, _}}), do: true` / `def ok?(%Mix.Dep{}), do: false`. **Total over any `%Mix.Dep{}` struct** — it cannot raise on the deps flowing through `compile/2` (all `%Mix.Dep{}`). The partition guard at line 108 cannot crash on `ok?`. Verified.

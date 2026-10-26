@@ -49,44 +49,44 @@ Parse cost is flat (<1 ms) throughout; the whole blowup is at expand+eval. A ~9.
 
 ### Ruled out
 
-- **Code execution (macro dispatch)** — `elixir_dispatch:dispatch_import` / `dispatch_require` (lines 528, 542) invoke macros at compile time; documented by-design compiler behavior, not a sink introduced here.
-  Axes examined: expansion re-entry of macro output, local vs remote dispatch | Not examined: dispatch-internal allow-listing, macro sandboxing
+- **Code execution (macro dispatch)** — `elixir_dispatch:dispatch_import` / `dispatch_require` (lines 528, 542) invoke macros at compile time; documented by-design compiler behavior, not a sink introduced here.\
+  Axes examined: expansion re-entry of macro output, local vs remote dispatch | Not examined: dispatch-internal allow-listing, macro sandboxing\
   Basis: asserted — Depends on: elixir_dispatch.erl. (Reading it would not clear the un-examined axes, so it stays asserted rather than being falsely promoted to verified.)
 
-- **Atom creation / atom-table exhaustion** — `elixir_aliases:concat/1` (lines 621, 624, 1041, 1088) uses `binary_to_atom/2` on `__aliases__` parts that are themselves source atoms. Each distinct alias expression yields one atom → bounded O(source), no amplification.
-  Axes examined: multi-alias `Foo.{A,B,...}` fan-out, repeated-alias, non-existing-module atom creation | Not examined: interaction with `binary_to_atom` 255-char / atom-table limit under a crafted multi-MB source
+- **Atom creation / atom-table exhaustion** — `elixir_aliases:concat/1` (lines 621, 624, 1041, 1088) uses `binary_to_atom/2` on `__aliases__` parts that are themselves source atoms. Each distinct alias expression yields one atom → bounded O(source), no amplification.\
+  Axes examined: multi-alias `Foo.{A,B,...}` fan-out, repeated-alias, non-existing-module atom creation | Not examined: interaction with `binary_to_atom` 255-char / atom-table limit under a crafted multi-MB source\
   Basis: asserted — Depends on: elixir_aliases.erl. The residual exhaustion axis is a general compiler property owned by `elixir_aliases`; I did not execute a multi-MB source to try it, so it stays on `Not examined` and the entry stays asserted.
 
-- **Deserialization (`binary_to_term` etc.)** — none present.
-  Axes examined: full-file grep for `binary_to_term`, `file:consult`, `dets`, `disk_log` | Not examined: none
+- **Deserialization (`binary_to_term` etc.)** — none present.\
+  Axes examined: full-file grep for `binary_to_term`, `file:consult`, `dets`, `disk_log` | Not examined: none\
   Basis: verified.
 
-- **Shared mutable state / process dictionary** — only reads: `maps:get`/`map_get` on the env map (lines 211, 269) and `elixir_config:get(on_undefined_variable)` (line 496, operator-controlled config). No `put`/`erase`/`ets:`/global write anywhere.
-  Axes examined: full-file grep for `put(`, `erase(`, `ets:`, `!`, `send` | Not examined: none
+- **Shared mutable state / process dictionary** — only reads: `maps:get`/`map_get` on the env map (lines 211, 269) and `elixir_config:get(on_undefined_variable)` (line 496, operator-controlled config). No `put`/`erase`/`ets:`/global write anywhere.\
+  Axes examined: full-file grep for `put(`, `erase(`, `ets:`, `!`, `send` | Not examined: none\
   Basis: verified.
 
-- **Command / file / network / NIF / crypto sinks** — none. Only filesystem-adjacent call is `filename:dirname(?key(E,file))` for `__DIR__` (line 194), a pure read-only string op on the compiler-supplied file path.
-  Axes examined: full-file grep for `os:`, `open_port`, `file:`, `filelib:`, `spawn`, crypto, `load_nif` | Not examined: none
+- **Command / file / network / NIF / crypto sinks** — none. Only filesystem-adjacent call is `filename:dirname(?key(E,file))` for `__DIR__` (line 194), a pure read-only string op on the compiler-supplied file path.\
+  Axes examined: full-file grep for `os:`, `open_port`, `file:`, `filelib:`, `spawn`, crypto, `load_nif` | Not examined: none\
   Basis: verified.
 
-- **Validation predicates (wrong-answer)** — `assert_no_*` scope gates (194-215, 1136-1165), `should_warn`, `is_loaded_and_not_exported` (1008), `validate_for_options` (881-899), `validate_opts` (1025-1031). A wrong answer yields a miscompile or confusing diagnostic, not a privilege/authz bypass; none is a security boundary.
-  Axes examined: match/guard-scope confusion, opts non-list, uniq/reduce/into conflict | Not examined: exhaustive scope-state cross-product
+- **Validation predicates (wrong-answer)** — `assert_no_*` scope gates (194-215, 1136-1165), `should_warn`, `is_loaded_and_not_exported` (1008), `validate_for_options` (881-899), `validate_opts` (1025-1031). A wrong answer yields a miscompile or confusing diagnostic, not a privilege/authz bypass; none is a security boundary.\
+  Axes examined: match/guard-scope confusion, opts non-list, uniq/reduce/into conflict | Not examined: exhaustive scope-state cross-product\
   Basis: asserted — Depends on: elixir_clauses.erl / elixir_env.erl. This is the "did not exhaustively" hedge: even fully enumerating the scope-state cross-product could at most reveal a miscompile/diagnostic error, which is categorically not a security finding, so the entry cannot be upgraded and reading the neighbours cannot move it to verified. It stays asserted — the safe direction.
 
-- **Uncaught crash on malformed AST (robustness/DoS)** — hand-crafted `{:foo, :bar, :baz}` (non-list `Meta`) reaches `elixir_utils:var_context/2` → `lists:keyfind(counter, 1, :bar)` → `ArgumentError`. Requires an AST violating the Macro contract (Meta must be a keyword list); the parser never emits non-list Meta, so unreachable from source and out of scope (contract violation); crashes only the caller process.
-  Axes examined (ran): non-list Meta, non-list Args (→ catch-all `invalid_call`), `make_ref`/pid/fun literals (→ `invalid_quoted_expr`), empty `<<>>` generator, empty `__block__`, deep nesting, pin/alias/bind_quoted misuse | Not examined: every hand-crafted 3-tuple permutation (combinatorially unbounded — cannot be exhausted, so it remains an open axis by construction, not by omission)
+- **Uncaught crash on malformed AST (robustness/DoS)** — hand-crafted `{:foo, :bar, :baz}` (non-list `Meta`) reaches `elixir_utils:var_context/2` → `lists:keyfind(counter, 1, :bar)` → `ArgumentError`. Requires an AST violating the Macro contract (Meta must be a keyword list); the parser never emits non-list Meta, so unreachable from source and out of scope (contract violation); crashes only the caller process.\
+  Axes examined (ran): non-list Meta, non-list Args (→ catch-all `invalid_call`), `make_ref`/pid/fun literals (→ `invalid_quoted_expr`), empty `<<>>` generator, empty `__block__`, deep nesting, pin/alias/bind_quoted misuse | Not examined: every hand-crafted 3-tuple permutation (combinatorially unbounded — cannot be exhausted, so it remains an open axis by construction, not by omission)\
   Basis: verified for the enumerated axes (ran). The residual "every permutation" axis is un-exhaustible; a worst case there is still only a caller-process crash, which the folder threat model scopes as out-of-bounds (contract violation), so the residual does not change the ruling.
 
-- **Resource consumption — recursion / expansion depth** — `expand/3` recursion depth = source nesting depth (shared by parser; caller-process crash only). Executed: `Code.string_to_quoted! |> Code.eval_quoted` on `((…(1)…))` at nesting 100/500/1000/2000/4000 → 0.5 / 0.1 / 0.2 / 0.5 / 1.1 ms — flat/linear, no superlinear blowup, no stack failure at 4000-deep. The `escape_map`-per-`__ENV__` cost that formerly shared this entry is promoted to Finding 1.
-  Axes examined: deep parenthesization/nesting depth (ran, 100→4000, linear) | Not examined: none
+- **Resource consumption — recursion / expansion depth** — `expand/3` recursion depth = source nesting depth (shared by parser; caller-process crash only). Executed: `Code.string_to_quoted! |> Code.eval_quoted` on `((…(1)…))` at nesting 100/500/1000/2000/4000 → 0.5 / 0.1 / 0.2 / 0.5 / 1.1 ms — flat/linear, no superlinear blowup, no stack failure at 4000-deep. The `escape_map`-per-`__ENV__` cost that formerly shared this entry is promoted to Finding 1.\
+  Axes examined: deep parenthesization/nesting depth (ran, 100→4000, linear) | Not examined: none\
   Basis: verified (ran; nesting axis is linear and caller-scoped).
 
-- **Counter rollover** — `version`/`Counter` fields (lines 343, 431, 440, 819, 877, etc.) are Erlang arbitrary-precision integers; no wrap.
-  Axes examined: increment sites for cond/case/receive/try/for and per-var version | Not examined: none
+- **Counter rollover** — `version`/`Counter` fields (lines 343, 431, 440, 819, 877, etc.) are Erlang arbitrary-precision integers; no wrap.\
+  Axes examined: increment sites for cond/case/receive/try/for and per-var version | Not examined: none\
   Basis: verified.
 
-- **Template / human-in-the-loop (`format_error`)** — error formatters use `io_lib:format` with `~ts`/`~s` on `'Elixir.Macro':to_string/1` / `inspect/2` output (bounded binaries); no value reaches a downstream interpreter and no `~`-directive is built from external data.
-  Axes examined: format-string injection, unbounded expansion of formatted term | Not examined: none
+- **Template / human-in-the-loop (`format_error`)** — error formatters use `io_lib:format` with `~ts`/`~s` on `'Elixir.Macro':to_string/1` / `inspect/2` output (bounded binaries); no value reaches a downstream interpreter and no `~`-directive is built from external data.\
+  Axes examined: format-string injection, unbounded expansion of formatted term | Not examined: none\
   Basis: verified.
 
 ### Did I verify this?

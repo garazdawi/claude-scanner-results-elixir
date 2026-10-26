@@ -23,7 +23,7 @@ Two issues survive the re-review. The primary defect is unchanged: `changing_con
 - **Issue:** The `:logger_handler` behaviour specifies that `changing_config/3` is invoked for *every* config change on the handler, with the operation being `:set` or `:update` and the third argument being the full new handler-config map. This module implements only the single clause `changing_config(:update, config, %{config: :refresh})`. Consequently any config change to the registered `Logger` handler other than the internal refresh — e.g. the documented OTP calls `:logger.set_handler_config(Logger, :level, :info)` or `:logger.update_handler_config(Logger, :filters, [])` — routes into this callback with an operation/shape that matches no clause and raises `FunctionClauseError`. OTP wraps it and the whole config operation fails with `{:error, {:callback_crashed, {:error, :function_clause, ...}}}`, leaving the change unapplied. The supported `:refresh` path (used by `Logger.Backends.Internal`, `internal.ex:40`) works, so only non-refresh reconfiguration is affected.
 - **Suggested fix:** Add a catch-all clause that accepts the other operations and returns the new config unchanged, e.g. `def changing_config(_op, _old, new), do: {:ok, new}` (placed after the `:refresh` clause). If the intent is to reject foreign updates, return an explicit `{:error, reason}` instead of letting it raise.
 - **Impact / threat:** A caller who manages OTP log handlers uniformly and adjusts the level or filters of the `Logger` bridge handler (a legitimately registered, introspectable handler) gets an opaque `callback_crashed` failure and the change silently does not take effect. No untrusted-data path is involved; the trigger is a documented OTP reconfiguration API against a documented behaviour callback.
-- **Evidence:** `verified`.
+- **Evidence:** `verified`.\
   Command: `elixir` (built from source under review) running
   ```elixir
   Application.ensure_all_started(:logger)
@@ -48,11 +48,11 @@ Two issues survive the re-review. The primary defect is unchanged: `changing_con
 - **Class:** Crash-on-untrusted-input / incomplete error containment (Phase 1 sink class: untrusted-data-triggered crash).
 - **Issue:** `log/2` calls `Logger.Formatter.format_event/2` inside a body guarded only by `rescue ArgumentError -> {:error, :noproc}` and `catch :exit, reason -> {:error, reason}`. Having now read `formatter.ex`, `format_event/2 → format_message/3` is **not total in `ArgumentError`/`:exit`**:
   - `format_message({:report, data}, %{report_cb: callback}, truncate)` (`formatter.ex:291–302`) invokes an **arbitrary caller-supplied function** `callback.(data)` (report_cb is `meta`-controlled per the folder threat model). That function can raise any exception class or `throw`.
-  - `format_report/2` (`formatter.ex:315–321`) calls `Kernel.inspect/2`, which raises whatever a term's custom `Inspect` implementation raises (commonly not `ArgumentError`).
+  - `format_report/2` (`formatter.ex:315–321`) calls `Kernel.inspect/2`, which raises whatever a term's custom `Inspect` implementation raises (commonly not `ArgumentError`).\
   A raise other than `ArgumentError`, or a `throw`, is caught by neither the `rescue ArgumentError` nor the `catch :exit` clause, so it propagates out of `log/2` and crashes the handler callback. OTP's `:logger` core contains the crash (reports it and can disable the `Logger` bridge handler after repeated failures), so this is degradation, not a VM crash — hence Low severity — but it drops the event and is reachable from a documented OTP logging call.
 - **Suggested fix:** Either broaden the containment in `log/2` (e.g. add `rescue e -> {:error, ...}` / `catch :throw, _`), or push the responsibility into the formatter so `format_event/2` never escapes its documented `IO.chardata()` contract. Note the obligation to be total properly belongs to `Logger.Formatter`; this file's contribution is that its `rescue ArgumentError` advertises containment it does not actually provide.
 - **Impact / threat:** A caller logging a `{:report, _}` event with a `report_cb/1` that raises (or logging a struct whose `Inspect` impl raises) triggers a handler-callback crash and event loss; repeated occurrences can lead OTP to remove the Logger bridge handler.
-- **Evidence:** `verified` (executed).
+- **Evidence:** `verified` (executed).\
   Command: `elixir` (built from source under review) running `Logger.Formatter.format_event/2` and `Logger.Backends.Handler.log/2` directly:
   ```elixir
   ev = %{level: :error, msg: {:report, %{foo: 1}},

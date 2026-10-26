@@ -16,7 +16,7 @@ _Analysed on 2026-08-27T09:22:02Z_
 - **Location** — `lib/mix/lib/mix/compilers/elixir.ex:356` (`read_manifest/1`); same defect at `:932` (`parse_manifest/2`) and `:1020` (`parse_checkpoint/2`)
 - **Class** — Deserialisation (CWE-502), Atom creation (CWE-770), Resource consumption / decompression bomb (CWE-409)
 - **Impact** — The manifest (`_build/<env>/lib/<app>/.mix/compile.elixir`) and its `.update.cp`/`.verify.cp` checkpoints are read with `File.read!() |> :erlang.binary_to_term()` — no `[:safe]`. The decode runs *before* any version/shape check, so any bytes are fully deserialized as a side effect even when the result is discarded. An attacker who controls those files (committed `_build` in a cloned repo, a restored CI cache keyed on attacker input, or a local path-dependency's build dir read via `stale_local_deps`/`protocols_and_impls_from_paths`) gets: (a) creation of arbitrary permanent atoms → atom-table exhaustion → VM abort, and (b) because the manifest is written with `[:compressed]`, a decompression/allocation bomb — a ~300 KiB file forces ~300 MiB allocation (~1030×), so a few-KB file OOM-kills the build. Reachable via the documented public `read_manifest/1`, `diagnostics/1`, `protocols_and_impls_from_paths/1`, and internally during `compile/7`/`clean/2`.
-- **Evidence** — verified.
+- **Evidence** — verified.\
 Atom injection through the public API (fresh atom, never created in-VM, appears after the call even though the versioned tuple doesn't match):
 ```
 $ elixir /tmp/repro_atom3.exs

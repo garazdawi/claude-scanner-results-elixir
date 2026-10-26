@@ -18,32 +18,32 @@ No findings.
 
 ### Ruled out
 
-- **URL/SSRF injection via CSV version fields** (`run_install`, lines 78–83).
-  The peer-controlled `elixir_version`/`hex_version`/`otp_release` are `String.replace`d into `hex_url <> @hex_archive_path`, i.e. strictly into the URL *path*, after the `https://builds.hex.pm` authority is already fixed by `Mix.Hex.url/0`.
-  Confidence: High.
-  Axes examined: host-substitution, scheme-substitution, path-escape (`../`), userinfo/`@`-smuggling, embedded-scheme, CRLF. | Not examined: none.
+- **URL/SSRF injection via CSV version fields** (`run_install`, lines 78–83).\
+  The peer-controlled `elixir_version`/`hex_version`/`otp_release` are `String.replace`d into `hex_url <> @hex_archive_path`, i.e. strictly into the URL *path*, after the `https://builds.hex.pm` authority is already fixed by `Mix.Hex.url/0`.\
+  Confidence: High.\
+  Axes examined: host-substitution, scheme-substitution, path-escape (`../`), userinfo/`@`-smuggling, embedded-scheme, CRLF. | Not examined: none.\
   Evidence (RAN, OTP29): with `elixir_version ∈ {"x@evil.com", "../../../..", "foo/@evil.com", "://evil.com/x", "\r\nHost: evil"}` the constructed URL always yields `URI.parse` `host="builds.hex.pm"`, `scheme="https"`. Authority cannot be moved.
 
-- **Checksum bypass / "no digest → accept anything" branch** (forwarding at line 88).
-  This file *always* emits `"--sha512", sha512`, and `sha512` is always a binary (never `nil`).
-  Confidence: High.
-  Axes examined: nil-digest reachability, empty-digest (`""`), wrong-digest, matching-digest. | Not examined: none.
+- **Checksum bypass / "no digest → accept anything" branch** (forwarding at line 88).\
+  This file *always* emits `"--sha512", sha512`, and `sha512` is always a binary (never `nil`).\
+  Confidence: High.\
+  Axes examined: nil-digest reachability, empty-digest (`""`), wrong-digest, matching-digest. | Not examined: none.\
   Evidence:
   - **Read** `local.ex:219–228`: `find_by_elixir_version/3` matches only `[artifact_version, digest, hex_elixir_version, hex_otp_release | _]` (≥4 columns), and `find_matching_versions!` returns `{hex_elixir_version, artifact_version, digest, hex_otp_release}` → `sha512 = digest`, a binary. The `nil` slot cannot be produced from this file.
   - **Read** `utils.ex:832–848`, the *real* `checksum/1` (not a replica): the accept-anything path requires `opts[:sha512] == nil`.
   - **Read** `installer.ex:71–134` + `archive.install.ex:78–91`: `--sha512` (`sha512: :string`) is parsed into `opts`; a `.ez` URL takes the `{:url, src}` branch → `local_install/3` → `Mix.Utils.read_path(src, opts)`; `module.install` (the `:zip.extract` sink) runs only on `{:ok, binary}`. The `:fetcher` branch that raises "--sha512 not supported" is not reached for a URL spec.
   - **RAN** the verbatim `checksum/1` body against a real SHA-512: `sha512: nil → {:ok, bin}`; `sha512: "" → {:checksum, :mismatch}`; `sha512: "deadbeef" → {:checksum, :mismatch}`; `sha512: <correct> → {:ok, bin}`. An empty or wrong digest fails closed *before* extraction; the bypass branch is unreachable from this file.
 
-- **Option injection via a hostile digest** (line 88).
-  A mirror-supplied `sha512` cannot inject an extra switch into `Archive.Install`'s strict `OptionParser`.
-  Confidence: High.
-  Axes examined: embedded-space splitting, leading `--`, leading `-`. | Not examined: none.
+- **Option injection via a hostile digest** (line 88).\
+  A mirror-supplied `sha512` cannot inject an extra switch into `Archive.Install`'s strict `OptionParser`.\
+  Confidence: High.\
+  Axes examined: embedded-space splitting, leading `--`, leading `-`. | Not examined: none.\
   Evidence (RAN, strict switches `[force: :boolean, sha512: :string]`): `"aa --submodules"` parses as one literal string value; `"--submodules"` and `"-x"` raise `OptionParser.ParseError` (fail-closed crash, not injection). No path installs unverified code, and a malicious mirror can already trivially fail the command.
 
-- **`Version.compare(Hex.version(), version)` crash** (line 54).
-  `version = List.first(args)` is operator-supplied argv; an invalid version raises `Version.InvalidVersionError` — operator self-harm on their own command line.
-  Confidence: High.
-  Axes examined: internal-caller reachability, external-input reachability. | Not examined: none.
+- **`Version.compare(Hex.version(), version)` crash** (line 54).\
+  `version = List.first(args)` is operator-supplied argv; an invalid version raises `Version.InvalidVersionError` — operator self-harm on their own command line.\
+  Confidence: High.\
+  Axes examined: internal-caller reachability, external-input reachability. | Not examined: none.\
   Evidence: **Read** `hex.ex:20,48` — the internal callers `ensure_installed?`/`ensure_updated?` invoke `Mix.Tasks.Local.Hex.run(["--force"])` with no version arg, so `version` is `nil` and line 54 is not entered from them. Only a human-typed CLI argument reaches it. Out of scope (operator boundary).
 
 - **`:code.purge(Hex)`** (line 86) — no external input; local module lifecycle management. Confidence: High. Axes examined: input source. | Not examined: none.

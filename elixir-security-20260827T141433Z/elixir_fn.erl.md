@@ -44,59 +44,59 @@ Here is my report.
 1. Minimal/targeted: cap positional captures at the real BEAM arity limit in the `escape/3` guard, mirroring `args_from_arity/3`. Change line 149 to `... when is_integer(Pos), Pos > 0, Pos =< 255 ->` and add a clause rejecting `Pos > 255` with an `invalid_arity_for_capture`-style error. This bounds the orddict to ≤255 entries, so find/store stay O(255) and the whole pass is linear; it also reports the arity violation eagerly instead of after O(N²) work.
 2. Algorithmic: replace the `orddict` accumulator in `escape/3` with a map (`#{}`; `maps:find/2`, `Dict#{Pos => Var}`) for O(1) amortized find/store, and in `capture_expr/6` sort the positions once before `validate` (`lists:keysort(1, maps:to_list(EDict))`). This makes the pass O(N log N) regardless of arity.
 
-**Evidence** —
-`read /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_fn.erl:142-181` — `escape/3` orddict find/store, `validate/4` with no cap, `args_from_arity/3` capping at 255.
-`ran diff -u /opt/elixir/.../elixir_fn.erl <target>` — "IDENTICAL — installed beam is a faithful test oracle".
-`ran /opt/elixir/bin/elixir qtest3.exs` — capture path `N=1600 → 4433.7ms` vs baseline `N=1600 → 0.9ms`.
-`ran /opt/elixir/bin/elixir qtest4.exs` — distinct-position `terms=3200 → 32360.5ms` vs all-`&1` `terms=3200 → 2.9ms`.
+**Evidence** —\
+`read /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_fn.erl:142-181` — `escape/3` orddict find/store, `validate/4` with no cap, `args_from_arity/3` capping at 255.\
+`ran diff -u /opt/elixir/.../elixir_fn.erl <target>` — "IDENTICAL — installed beam is a faithful test oracle".\
+`ran /opt/elixir/bin/elixir qtest3.exs` — capture path `N=1600 → 4433.7ms` vs baseline `N=1600 → 0.9ms`.\
+`ran /opt/elixir/bin/elixir qtest4.exs` — distinct-position `terms=3200 → 32360.5ms` vs all-`&1` `terms=3200 → 2.9ms`.\
 `read /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_module.erl:64-71` — `next_counter(nil) -> erlang:unique_integer()`, no atom creation.
 
 ---
 
 ### Ruled out
 
-- **`escape/3` recursion depth (lines 165-174)** — Unbounded recursion over AST depth (linear in nesting).
-Reason — Depth = source nesting depth, which the tokenizer/parser and `elixir_expand` recurse over first; Erlang grows the process stack dynamically and, at the limit, raises a catchable `system_limit` in the caller's own process, not memory corruption. Test B recursed 3200-deep with no stack fault; the orddict cost dominates and manifests long before any stack limit. General compiler property, subsumed by the quadratic finding.
-Axes examined: left-nested tree, distinct/duplicate positions, depth 3200 | Not examined: extreme depth (≥10⁶) stack-limit crash, right-nested vs left-nested balance
-Basis — asserted
+- **`escape/3` recursion depth (lines 165-174)** — Unbounded recursion over AST depth (linear in nesting).\
+Reason — Depth = source nesting depth, which the tokenizer/parser and `elixir_expand` recurse over first; Erlang grows the process stack dynamically and, at the limit, raises a catchable `system_limit` in the caller's own process, not memory corruption. Test B recursed 3200-deep with no stack fault; the orddict cost dominates and manifests long before any stack limit. General compiler property, subsumed by the quadratic finding.\
+Axes examined: left-nested tree, distinct/duplicate positions, depth 3200 | Not examined: extreme depth (≥10⁶) stack-limit crash, right-nested vs left-nested balance\
+Basis — asserted\
 Depends on: elixir_tokenizer.erl / elixir_parser.yrl — the parser recurses to at least the same depth to build the AST before `escape` sees it, so `escape` is not the first blow-up point; and the enclosing `elixir_expand:expand` recurses over the same tree.
 
-- **`fn_arity/1` `length(Args) - 1` (line 41)** — Arity computation for `fn` clauses.
-Reason — On a `[{'when', _, []}]` shape it would yield -1, but the result is only compared via `lists:usort` for "all clauses same arity"; a bogus number causes at most a spurious `clauses_with_different_arities` error, no crash or resource issue. Post-expansion `when` always carries ≥1 element (the guard), so -1 is not even producible from parsed source.
-Axes examined: empty when-args, single guard, mixed arities | Not examined: none
+- **`fn_arity/1` `length(Args) - 1` (line 41)** — Arity computation for `fn` clauses.\
+Reason — On a `[{'when', _, []}]` shape it would yield -1, but the result is only compared via `lists:usort` for "all clauses same arity"; a bogus number causes at most a spurious `clauses_with_different_arities` error, no crash or resource issue. Post-expansion `when` always carries ≥1 element (the guard), so -1 is not even producible from parsed source.\
+Axes examined: empty when-args, single guard, mixed arities | Not examined: none\
 Basis — verified
 
-- **`capture/4` clause dispatch on malformed AST (lines 12-14, 28, 46-80)** — `lists:any/length/mapfoldl` over `Left`/`Args`/`Clauses` assume list shape; a non-list would `function_clause`/`badarg`.
-Reason — From the documented source-parsing path the grammar guarantees `fn` clauses are `{'->', _, [ListArgs, Body]}` and capture args are lists; producing a non-list requires macro-generated or hand-built AST fed to `Code.eval_quoted`, i.e. violating the AST contract — out of scope (contract/`-spec` violation, and eval of untrusted AST is a documented caller bug).
-Axes examined: non-`->` clause, non-list args, 2-tuple clause | Not examined: none (out-of-scope by contract)
+- **`capture/4` clause dispatch on malformed AST (lines 12-14, 28, 46-80)** — `lists:any/length/mapfoldl` over `Left`/`Args`/`Clauses` assume list shape; a non-list would `function_clause`/`badarg`.\
+Reason — From the documented source-parsing path the grammar guarantees `fn` clauses are `{'->', _, [ListArgs, Body]}` and capture args are lists; producing a non-list requires macro-generated or hand-built AST fed to `Code.eval_quoted`, i.e. violating the AST contract — out of scope (contract/`-spec` violation, and eval of untrusted AST is a documented caller bug).\
+Axes examined: non-`->` clause, non-list args, 2-tuple clause | Not examined: none (out-of-scope by contract)\
 Basis — verified
 
-- **`args_from_arity/3` arity guard (lines 178-181)** — Defensive `0 =< A =< 255` cap.
-Reason — Reachable and correct: `&Mod.fun/256` and `&Mod.fun/-1` both fall through to the `file_error` clause; the bound matches the BEAM max arity. This is a working guard, not dead code — and its absence in the parallel `escape` positional path is captured by the finding above.
-Axes examined: A>255, A<0, A=0, A=255, bignum A | Not examined: none
+- **`args_from_arity/3` arity guard (lines 178-181)** — Defensive `0 =< A =< 255` cap.\
+Reason — Reachable and correct: `&Mod.fun/256` and `&Mod.fun/-1` both fall through to the `file_error` clause; the bound matches the BEAM max arity. This is a working guard, not dead code — and its absence in the parallel `escape` positional path is captured by the finding above.\
+Axes examined: A>255, A<0, A=0, A=255, bignum A | Not examined: none\
 Basis — verified (`ran` — `&Foo.bar/256` triggers `invalid_arity_for_capture`; confirmed by reading lines 178-181)
 
-- **`elixir_module:next_counter/1` (line 157)** — Shared-state counter / potential atom creation.
-Reason — Returns an integer (`ets:update_counter`) or `erlang:unique_integer()` for `nil`/error; creates no atoms and cannot exhaust the atom table. The variable atom `'_&'` (line 158) is a fixed literal. The ETS counter is monotonic (Erlang bignum, no overflow) and per-module; bumping it N times is not a poisoning vector.
-Axes examined: module=nil, module=atom, ETS-missing (catch), counter growth | Not examined: none
+- **`elixir_module:next_counter/1` (line 157)** — Shared-state counter / potential atom creation.\
+Reason — Returns an integer (`ets:update_counter`) or `erlang:unique_integer()` for `nil`/error; creates no atoms and cannot exhaust the atom table. The variable atom `'_&'` (line 158) is a fixed literal. The ETS counter is monotonic (Erlang bignum, no overflow) and per-module; bumping it N times is not a poisoning vector.\
+Axes examined: module=nil, module=atom, ETS-missing (catch), counter growth | Not examined: none\
 Basis — verified (`read elixir_module.erl:64-71`)
 
-- **`format_error/1` → `'Elixir.Macro':to_string/1` with `~ts`/`~s`/`~B` (lines 199-232)** — Attacker-controlled AST stringified into compiler diagnostics (template / human-in-the-loop).
-Reason — Format strings are compile-time constants and every interpolated value is passed as a `~`-directive argument, so there is no format-string injection. `~B` targets (`invalid_arity_for_capture`, `capture_arg_without_predecessor`, `capture_arg_outside_of_capture`) are all guaranteed integers by the `is_integer` guards that reach them, so no `badarg`. `Macro.to_string` emits canonical Elixir syntax rather than echoing raw source bytes, and the tokenizer already rejected bidi/`?break` controls before an AST exists, so a Trojan-Source-style diagnostic smuggle is not introduced here. At most a defense-in-depth concern (a human reading a diagnostic that reflects hostile-looking identifiers).
-Axes examined: `~B` non-integer arg, atom vs chardata for `~ts`/`~s`, bignum position, bidi/escape in stringified AST | Not examined: exhaustive `Macro.to_string` output-shaping (cross-file)
-Basis — asserted
+- **`format_error/1` → `'Elixir.Macro':to_string/1` with `~ts`/`~s`/`~B` (lines 199-232)** — Attacker-controlled AST stringified into compiler diagnostics (template / human-in-the-loop).\
+Reason — Format strings are compile-time constants and every interpolated value is passed as a `~`-directive argument, so there is no format-string injection. `~B` targets (`invalid_arity_for_capture`, `capture_arg_without_predecessor`, `capture_arg_outside_of_capture`) are all guaranteed integers by the `is_integer` guards that reach them, so no `badarg`. `Macro.to_string` emits canonical Elixir syntax rather than echoing raw source bytes, and the tokenizer already rejected bidi/`?break` controls before an AST exists, so a Trojan-Source-style diagnostic smuggle is not introduced here. At most a defense-in-depth concern (a human reading a diagnostic that reflects hostile-looking identifiers).\
+Axes examined: `~B` non-integer arg, atom vs chardata for `~ts`/`~s`, bignum position, bidi/escape in stringified AST | Not examined: exhaustive `Macro.to_string` output-shaping (cross-file)\
+Basis — asserted\
 Depends on: elixir_tokenizer.erl — `?bidi`/`?break` rejection removes directional/line-break controls from source before any AST reaches `format_error`; `Elixir.Macro.to_string/1` returns well-formed chardata (never a bare atom that would `badarg` a `~ts`).
 
-- **`elixir_dispatch:import_function/require_function` (lines 84, 104)** — Function resolution by name/arity.
-Reason — The name (`Atom`/`Right`) is already an atom produced by the parser and the arity is `length(Args)` (bounded by source size); no dynamic `list_to_atom`/`binary_to_atom` occurs in this file, and dispatch is a lookup, not a sink. Cross-file behavior, not a sink here.
-Axes examined: name origin (parsed atom), arity value | Not examined: internal behavior of dispatch (out-of-file)
-Basis — asserted
+- **`elixir_dispatch:import_function/require_function` (lines 84, 104)** — Function resolution by name/arity.\
+Reason — The name (`Atom`/`Right`) is already an atom produced by the parser and the arity is `length(Args)` (bounded by source size); no dynamic `list_to_atom`/`binary_to_atom` occurs in this file, and dispatch is a lookup, not a sink. Cross-file behavior, not a sink here.\
+Axes examined: name origin (parsed atom), arity value | Not examined: internal behavior of dispatch (out-of-file)\
+Basis — asserted\
 Depends on: elixir_dispatch.erl — `import_function`/`require_function` do not atomize untrusted text and return `false`/a resolved tuple without unbounded allocation.
 
-- **`elixir_expand:expand/3` on the module part (line 90)** — Re-entrant expansion of the `Left` of `&Left.fun/arity`.
-Reason — Delegates back to the general expander (in-folder callee `elixir_expand`); any cost/recursion there is the expander's own general property, not a sink introduced by this file.
-Axes examined: variable/atom/complex module expr | Not examined: expander internals (out-of-file)
-Basis — asserted
+- **`elixir_expand:expand/3` on the module part (line 90)** — Re-entrant expansion of the `Left` of `&Left.fun/arity`.\
+Reason — Delegates back to the general expander (in-folder callee `elixir_expand`); any cost/recursion there is the expander's own general property, not a sink introduced by this file.\
+Axes examined: variable/atom/complex module expr | Not examined: expander internals (out-of-file)\
+Basis — asserted\
 Depends on: elixir_expand.erl — `expand/3` terminates and does not itself introduce super-linear cost on the module sub-expression.
 
 ### Did I verify this?

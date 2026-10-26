@@ -22,7 +22,7 @@ _Re-analysed on 2026-08-28_
 - **Class:** Template / interpolation (log / terminal injection)
 - **Issue:** On a parse failure, the untrusted input `string` is interpolated **raw** into the `ArgumentError` message: `~s/failed to parse duration "#{string}". reason: #{inspect(reason)}/`. Note the asymmetry — `reason` is passed through `inspect/1` (which escapes control bytes), but `string` is not. Control characters in the input (ANSI escape sequences, newlines, carriage returns) are carried into the message verbatim.
 - **Impact / threat:** `from_iso8601!/1` is a documented public API commonly fed a duration value that originated from user/network input (e.g. an HTTP parameter). On malformed input it raises, and the resulting message routinely reaches two interpreters that act on those bytes: an uncaught exception is printed to **stderr (a terminal)**, where the embedded ANSI escapes execute (screen manipulation, colored/forged text); and error messages are commonly written to **logs**, where an embedded newline lets an attacker forge an additional, attacker-controlled log line. The trust boundary crossed is external input → error string → terminal/log sink. Impact is limited to display/log integrity (spoofing/forgery), not code execution — hence Low.
-- **Evidence:** `verified`.
+- **Evidence:** `verified`.\
   Command:
   ```
   elixir -e 'try do Duration.from_iso8601!("\e[31;1mFORGED ERROR: system compromised\e[0m\nX") rescue e in ArgumentError -> IO.puts("raw message bytes: " <> inspect(Exception.message(e), limit: :infinity)) end'

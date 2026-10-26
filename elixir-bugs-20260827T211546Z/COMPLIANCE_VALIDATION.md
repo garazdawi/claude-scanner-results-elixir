@@ -1,8 +1,8 @@
 # Validator verdicts
 
-Automated prove-or-disprove pass over every `CSCAN-*` finding in the
-sibling per-file reports. Each verdict is one Claude call with both-
-sides steelman prompt at `--effort medium`. Read the **Reasoning**
+Automated prove-or-disprove pass over every `CSCAN-*` finding in the\
+sibling per-file reports. Each verdict is one Claude call with both-\
+sides steelman prompt at `--effort medium`. Read the **Reasoning**\
 line per finding to decide whether to trust the verdict.
 
 ## Summary
@@ -21,8 +21,8 @@ line per finding to decide whether to trust the verdict.
 
 ### Validator verdict for CSCAN-elixir-rfc-mixed_number_detection
 
-**Verdict:** real
-**Confidence:** high
+**Verdict:** real\
+**Confidence:** high\
 **Files read:** /Users/lukas/code/claude-scanner/elixir/lib/elixir/unicode/tokenizer.ex, /Users/lukas/code/claude-scanner/elixir/lib/elixir/pages/references/unicode-syntax.md, /Users/lukas/code/claude-scanner/elixir/lib/elixir/unicode/UnicodeData.txt, /Users/lukas/code/claude-scanner/elixir/lib/elixir/unicode/IdentifierType.txt
 
 **Steelman (real):** The cited code matches exactly. Line 77 adds General_Category `Nd` codepoints to `continue`, and the restricted filter (lines 116–125) only strips codepoints that are neither `Inclusion` nor `Recommended`. I confirmed against the data files that Devanagari digits `0966..096F` are `Nd` (UnicodeData.txt) and `Recommended` (IdentifierType.txt), so they survive the filter and land in `unicode_continue`, becoming valid identifier continue characters in production tokenization. `validate/2` (lines 483–522) performs only NFC normalization and the mixed-script scriptset-intersection check — grep across `unicode/*.ex` found no digit-base/number-system logic anywhere in code (only data files matched). `codepoint_to_scriptset` maps ASCII digits to `@top` (line 575, script-neutral) and non-ASCII `Nd` digits to their own script's scriptset (lines 578–582). So an identifier like Devanagari-letter + ASCII `0` + Devanagari `०` keeps a non-empty (Devanagari) scriptset and passes, mixing two decimal number systems — precisely what UTS #39 §5.3 (SHOULD) asks implementations to detect. The doc premise at unicode-syntax.md:147 ("Elixir does not support Unicode numbers") is factually false.
@@ -35,8 +35,8 @@ line per finding to decide whether to trust the verdict.
 
 ### Validator verdict for CSCAN-elixir-rfc-implicit_level_resolution
 
-**Verdict:** real
-**Confidence:** high
+**Verdict:** real\
+**Confidence:** high\
 **Files read:** /Users/lukas/code/claude-scanner/elixir/lib/elixir/unicode/security.ex, /Users/lukas/code/claude-scanner/elixir/lib/elixir/unicode/tokenizer.ex
 
 **Steelman (real):** The cited code exists exactly as described: `security.ex:171-172` handles `:weak_number` by `{[], part_dir, [head] ++ neutrals ++ part, acc}`, prepending each digit individually to the current part just like a strong RTL char (the `^part_dir` clause at 177-178). Since an RTL part is built by prepending and never internally re-reversed (see the `:rtl` finalization at line 190, `Enum.reverse(acc, neutrals ++ last_part)`), consecutive digits in an RTL run come out reversed. `String.Tokenizer.dir(i) when i in 48..57` returns `:weak_number` for digits 0-9 (tokenizer.ex:350). This is live production code: `confusable_skeleton/1` (106) → `bidi_skeleton/1` (126) → `unbidify/1` (166) is the Elixir compiler's identifier-confusability check, run for any identifier containing RTL chars. I verified by execution: `S.unbidify([Aleph, ?1, ?2])` returned `[50, 49, 1488]` (= "2","1",Aleph) and `S.unbidify([Aleph, ?1, ?2, Bet])` returned `[1489, 50, 49, 1488]` (= Bet,"2","1",Aleph). The UAX #9 correct visual order keeps EN digits LTR (`[49,50,1488]` = "1","2",Aleph), because European numbers within an RTL run sit at an even embedding level and are double-reversed. The code single-reverses them — a genuine, reachable deviation.

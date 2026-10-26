@@ -31,7 +31,7 @@ No findings.
 
 ## Ruled out
 
-- **`min/2,3` and `max/2,3` deprecated list fast-path vs `aggregate/3` general path (lines 1864–1876, 1926–1931, 2049–2061, 2111–2116; `aggregate` 4299–4353)** — Suspected the `@doc false` explicit `[_ | _]` list clauses sitting *before* the default-arg head could shadow the general clauses or make lists and non-lists disagree (fast path `:lists.max`/`:lists.min` = strict `>`/`<`, first-wins on ties; general path `aggregate` with `&>=/2`/`&<=/2`, `acc`-wins on ties).
+- **`min/2,3` and `max/2,3` deprecated list fast-path vs `aggregate/3` general path (lines 1864–1876, 1926–1931, 2049–2061, 2111–2116; `aggregate` 4299–4353)** — Suspected the `@doc false` explicit `[_ | _]` list clauses sitting *before* the default-arg head could shadow the general clauses or make lists and non-lists disagree (fast path `:lists.max`/`:lists.min` = strict `>`/`<`, first-wins on ties; general path `aggregate` with `&>=/2`/`&<=/2`, `acc`-wins on ties).\
   Basis: `verified`. Executed both paths (list = fast path; `Stream.map/2` wrapper = general `aggregate`) and compared with `===`.
   - Tie-break / equal-distinct axis: `[1,1.0]→{max 1,min 1}`, `[1.0,1]→{1.0,1.0}`, `[1.0,1,1.0]→{1.0,1.0}`, `[2,2.0,1]→{2,1}`, `[1,2.0,2]→{2.0,1}`, `[3.0,3]→{3.0,3.0}` — every case agreed list↔stream (`true,true`), identity of the first equal-comparing element preserved identically.
   - Custom 2-arity sorter axis: `max([1,3,2], &<=/2)=1` and `min([1,3,2], &>=/2)=3` agreed list↔stream.

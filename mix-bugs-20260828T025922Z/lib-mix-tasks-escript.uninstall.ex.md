@@ -19,11 +19,11 @@ No findings
 - `File.rm/1` on the `.bat` path never raises: executed `File.rm("/tmp/...missing.bat")` → `{:error, :enoent}`, and `File.rm("<a directory>")` → `{:error, :eperm}`. Both error tuples are returned, not raised. The ignored tuple becoming `run/1`'s return value is inconsequential (Mix ignores task return values).
 
 ### Ruled out
-- **Ignored `File.rm` error tuple crashes / misbehaves** — `File.rm(path <> ".bat")` on the non-Windows common case (no `.bat` present) returns an error tuple that is discarded harmlessly; no crash, no wrong behaviour.
+- **Ignored `File.rm` error tuple crashes / misbehaves** — `File.rm(path <> ".bat")` on the non-Windows common case (no `.bat` present) returns an error tuple that is discarded harmlessly; no crash, no wrong behaviour.\
   Confidence: high. Axes examined: nonexistent-target (`{:error, :enoent}`, executed), target-is-directory (`{:error, :eperm}`, executed) | Not examined: none.
-- **`.bat` removed when uninstall was declined or nothing found** — the `if path = ...` guard suppresses the removal because `uninstall/4` returns `nil` (not a path) on the `should_uninstall? == false` branch and on the not-found branch (verified at `installer.ex:317-323`).
+- **`.bat` removed when uninstall was declined or nothing found** — the `if path = ...` guard suppresses the removal because `uninstall/4` returns `nil` (not a path) on the `should_uninstall? == false` branch and on the not-found branch (verified at `installer.ex:317-323`).\
   Confidence: high. Axes examined: declined branch, not-found branch, no-arg (raises before return) — all read in source | Not examined: none.
-- **`.bat` name mismatch with install** — install writes the wrapper at `dst <> ".bat"` where `dst = destination(basename) = Path.join(Mix.path_for(:escripts), basename)` (`escript.install.ex:123,142-144`); uninstall removes `found <> ".bat"` where `found` is `Path.join(Mix.path_for(:escripts), name)` for a direct-name match or the `name-*` wildcard match (`installer.ex:305-310,333-334`). In both resolutions the `.bat` sits adjacent to the escript file at the same directory, so the suffix concatenation targets the exact wrapper install created.
+- **`.bat` name mismatch with install** — install writes the wrapper at `dst <> ".bat"` where `dst = destination(basename) = Path.join(Mix.path_for(:escripts), basename)` (`escript.install.ex:123,142-144`); uninstall removes `found <> ".bat"` where `found` is `Path.join(Mix.path_for(:escripts), name)` for a direct-name match or the `name-*` wildcard match (`installer.ex:305-310,333-334`). In both resolutions the `.bat` sits adjacent to the escript file at the same directory, so the suffix concatenation targets the exact wrapper install created.\
   Confidence: high. Axes examined: direct-name match, versioned `matching_package` (`name-*`) match — both traced against install's write path in source | Not examined: none.
 
 ### Did I verify this?

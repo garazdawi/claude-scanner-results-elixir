@@ -50,41 +50,41 @@ Let me write the report.
 
 ### Ruled out
 
-- **`parse_erl_term/1` — `erl_scan:string`/`erl_parse:parse_term` on the parser's offending-token binary (line 408-416), incl. the sigil hard match `{ok,{sigil,_,_,[Content|_],_,_,_}} = ...` (line 358) and the `[<<...` binary clause (line 378).**
-  Reason — the token binary is the `~tp` render of a real Elixir token (via `yecctoken2string1/1`'s catch-all, `elixir_parser.erl:883`), whose only element types are atoms/integers/binaries/lists/tuples; Erlang's `~tp` always emits valid term syntax for those, so `parse_erl_term` round-trips and the 7-tuple/non-empty-`Parts` shape always holds. Empty sigils yield `Parts=[<<>>]` (non-empty), and re-scanning creates no atoms that tokenization didn't already intern.
-  Axes examined: empty sigil (`Parts=[<<>>]`), interpolation parts, quotes/apostrophes/backslash, NUL+high bytes, embedded newline/CRLF, unicode (BMP+astral), modifiers, uppercase sigil name, brace/tuple-looking content, 5000-byte content, `static_atoms_encoder` non-atom `Atom` (handled by `is_atom/1`, line 365) | Not examined: none.
+- **`parse_erl_term/1` — `erl_scan:string`/`erl_parse:parse_term` on the parser's offending-token binary (line 408-416), incl. the sigil hard match `{ok,{sigil,_,_,[Content|_],_,_,_}} = ...` (line 358) and the `[<<...` binary clause (line 378).**\
+  Reason — the token binary is the `~tp` render of a real Elixir token (via `yecctoken2string1/1`'s catch-all, `elixir_parser.erl:883`), whose only element types are atoms/integers/binaries/lists/tuples; Erlang's `~tp` always emits valid term syntax for those, so `parse_erl_term` round-trips and the 7-tuple/non-empty-`Parts` shape always holds. Empty sigils yield `Parts=[<<>>]` (non-empty), and re-scanning creates no atoms that tokenization didn't already intern.\
+  Axes examined: empty sigil (`Parts=[<<>>]`), interpolation parts, quotes/apostrophes/backslash, NUL+high bytes, embedded newline/CRLF, unicode (BMP+astral), modifiers, uppercase sigil name, brace/tuple-looking content, 5000-byte content, `static_atoms_encoder` non-atom `Atom` (handled by `is_atom/1`, line 365) | Not examined: none.\
   Basis — verified (`ran trace4.erl`: all 13 adversarial cases `parse_erl_term=ok hardmatch=matched`; `ran trace.erl` confirmed empty-sigil `Parts=[<<>>]`).
 
-- **`cut_snippet/2,3` → `lists:nthtail(Line - StartLine, Lines)` and `[Head|Tail] = ...` (line 449-457).**
-  Reason — the tokenizer increments its line counter only on `\n`/`\r\n` (`elixir_tokenizer.erl:659-663` → `tokenize_eol` → `Line+1`), and `cut_snippet` splits on `"\n"`, so both key off the same newline; the reported error line is always ≤ `StartLine + (number of \n)` = `StartLine + length(Lines) - 1`, keeping the `nthtail` index in `[0, length(Lines)-1]`. Fuzzing incomplete/mismatched/multi-line/CR/VT/FF/unicode-separator inputs produced only clean `SyntaxError`/`TokenMissingError`/`MismatchedDelimiterError`, never a badmatch/function_clause.
-  Axes examined: bare CR, CRLF, trailing newlines, VT/FF, LS/PS, deeply nested/incomplete, mismatched delimiters (with `end_line`), heredocs, `StartColumn`/`Indentation` prelude, negative index (Line<StartLine) | Not examined: none.
+- **`cut_snippet/2,3` → `lists:nthtail(Line - StartLine, Lines)` and `[Head|Tail] = ...` (line 449-457).**\
+  Reason — the tokenizer increments its line counter only on `\n`/`\r\n` (`elixir_tokenizer.erl:659-663` → `tokenize_eol` → `Line+1`), and `cut_snippet` splits on `"\n"`, so both key off the same newline; the reported error line is always ≤ `StartLine + (number of \n)` = `StartLine + length(Lines) - 1`, keeping the `nthtail` index in `[0, length(Lines)-1]`. Fuzzing incomplete/mismatched/multi-line/CR/VT/FF/unicode-separator inputs produced only clean `SyntaxError`/`TokenMissingError`/`MismatchedDelimiterError`, never a badmatch/function_clause.\
+  Axes examined: bare CR, CRLF, trailing newlines, VT/FF, LS/PS, deeply nested/incomplete, mismatched delimiters (with `end_line`), heredocs, `StartColumn`/`Indentation` prelude, negative index (Line<StartLine) | Not examined: none.\
   Basis — verified (`ran probe.exs`, `probe2.exs`, `fuzz.exs`; all rescued to the syntax-error family; line-counting parity read at `elixir_tokenizer.erl:659-663,755-759`).
 
-- **`get_file_line/2`/`traverse_file_line/2` — `file:open(File,[read,binary])` + N-line `file:read_line` loop (line 222-240).**
-  Reason — `File` is the diagnostic's `file` (compiler-chosen, or the caller's own `:file` option — not an attacker-supplied *path*, and `nil`/`<<"nofile">>` short-circuit to `nil`); no external path components are joined, so no traversal. The O(N) read loop's N is the diagnostic line number, which for tokenizer-derived positions is bounded by the file's own newline count (content alone cannot make line ≫ file length); a huge N requires the *caller* to pass an out-of-range `line:` start, which is self-inflicted.
-  Axes examined: nil/"nofile" sentinels, path origin (caller/compiler vs attacker), huge line number vs file length, single-line read+close (no persistent handle) | Not examined: symlink/FIFO target of the caller's `:file` path (caller-chosen, out of scope).
-  Basis — asserted.
+- **`get_file_line/2`/`traverse_file_line/2` — `file:open(File,[read,binary])` + N-line `file:read_line` loop (line 222-240).**\
+  Reason — `File` is the diagnostic's `file` (compiler-chosen, or the caller's own `:file` option — not an attacker-supplied *path*, and `nil`/`<<"nofile">>` short-circuit to `nil`); no external path components are joined, so no traversal. The O(N) read loop's N is the diagnostic line number, which for tokenizer-derived positions is bounded by the file's own newline count (content alone cannot make line ≫ file length); a huge N requires the *caller* to pass an out-of-range `line:` start, which is self-inflicted.\
+  Axes examined: nil/"nofile" sentinels, path origin (caller/compiler vs attacker), huge line number vs file length, single-line read+close (no persistent handle) | Not examined: symlink/FIFO target of the caller's `:file` path (caller-chosen, out of scope).\
+  Basis — asserted.\
   Depends on: `elixir.erl` — the `:file`/position in a diagnostic originates from the compiler or the API caller's own options, and tokenizer-assigned line numbers do not exceed the source's newline count.
 
-- **`Module:format_error(Desc)` dynamic dispatch (line 260, 293).**
-  Reason — `Module` is an error-formatting module reference passed by internal compiler callers (`elixir_expand`, `elixir_module`, `elixir_dispatch`, …), never derived from external bytes; `Desc`→string is a formatting operation, not a sink for arbitrary terms.
-  Axes examined: origin of `Module` (internal callers per callgraph), origin of `Desc` (compiler passes) | Not examined: none.
+- **`Module:format_error(Desc)` dynamic dispatch (line 260, 293).**\
+  Reason — `Module` is an error-formatting module reference passed by internal compiler callers (`elixir_expand`, `elixir_module`, `elixir_dispatch`, …), never derived from external bytes; `Desc`→string is a formatting operation, not a sink for arbitrary terms.\
+  Axes examined: origin of `Module` (internal callers per callgraph), origin of `Desc` (compiler passes) | Not examined: none.\
   Basis — verified (module argument is supplied literally by in-folder callers listed in the callgraph slice; no external-data path reaches the `Module` position).
 
-- **`raise/3` → `Kind:exception([...])` dynamic dispatch (line 529).**
-  Reason — every caller passes a literal atom `Kind` (`'Elixir.CompileError'`, `'Elixir.SyntaxError'`, `'Elixir.TokenMissingError'`, `'Elixir.MismatchedDelimiterError'`); `Kind` is never computed from input.
-  Axes examined: all `raise`/`raise_snippet`/`raise_reserved` call sites (lines 312, 315, 327, 331, 343, 354, 374, 382, 387, 396, 403, 405, 419, 426) | Not examined: none.
+- **`raise/3` → `Kind:exception([...])` dynamic dispatch (line 529).**\
+  Reason — every caller passes a literal atom `Kind` (`'Elixir.CompileError'`, `'Elixir.SyntaxError'`, `'Elixir.TokenMissingError'`, `'Elixir.MismatchedDelimiterError'`); `Kind` is never computed from input.\
+  Axes examined: all `raise`/`raise_snippet`/`raise_reserved` call sites (lines 312, 315, 327, 331, 343, 354, 374, 382, 387, 396, 403, 405, 419, 426) | Not examined: none.\
   Basis — verified (`read` of every call site; all `Kind` values are literals).
 
-- **`unicode:characters_to_binary(Message)` (line 77) and downstream `~ts` on `Message`.**
-  Reason — `Message` is `Module:format_error(Desc)` output or a tokenizer warning string; tokens are validated UTF-8 by the tokenizer (invalid UTF-8 is rejected before a message is built), so `Message` is valid chardata and the call returns a binary rather than an `{error,_}`/`{incomplete,_}` tuple.
-  Axes examined: invalid UTF-8 in source (tokenizer-rejected), developer format strings | Not examined: a caller/pass deliberately passing invalid chardata as `Desc` that survives `format_error`.
-  Basis — asserted.
+- **`unicode:characters_to_binary(Message)` (line 77) and downstream `~ts` on `Message`.**\
+  Reason — `Message` is `Module:format_error(Desc)` output or a tokenizer warning string; tokens are validated UTF-8 by the tokenizer (invalid UTF-8 is rejected before a message is built), so `Message` is valid chardata and the call returns a binary rather than an `{error,_}`/`{incomplete,_}` tuple.\
+  Axes examined: invalid UTF-8 in source (tokenizer-rejected), developer format strings | Not examined: a caller/pass deliberately passing invalid chardata as `Desc` that survives `format_error`.\
+  Basis — asserted.\
   Depends on: `elixir_tokenizer.erl` — surfaces invalid UTF-8 as an error (UTF8_DECODE_ERRORS_SURFACED), so message text derived from tokens is valid chardata.
 
-- **Process-dictionary state in `emit_diagnostic` (`elixir_code_diagnostics`, `elixir_compiler_info`, `elixir_compiler_file`, line 71-94) and diagnostic-list accumulation.**
-  Reason — these keys are compiler-internal, per-process routing state set by the compilation driver; they are not attacker-controlled across a trust boundary, and the accumulated list length is bounded by the finite number of diagnostics a given source produces.
-  Axes examined: key origin (compiler driver, not input), list growth bound (per-source diagnostic count) | Not examined: none.
+- **Process-dictionary state in `emit_diagnostic` (`elixir_code_diagnostics`, `elixir_compiler_info`, `elixir_compiler_file`, line 71-94) and diagnostic-list accumulation.**\
+  Reason — these keys are compiler-internal, per-process routing state set by the compilation driver; they are not attacker-controlled across a trust boundary, and the accumulated list length is bounded by the finite number of diagnostics a given source produces.\
+  Axes examined: key origin (compiler driver, not input), list growth bound (per-source diagnostic count) | Not examined: none.\
   Basis — verified (`read` of `emit_diagnostic`; all three keys are compiler-owned and none is populated from the reviewed API's untrusted arguments).
 
 ### Did I verify this?

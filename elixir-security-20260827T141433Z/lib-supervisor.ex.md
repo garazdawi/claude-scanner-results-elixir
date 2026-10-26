@@ -19,13 +19,13 @@ _Re-analysed on 2026-08-28T (single-file hedges revisited)_
 
 ### Ruled out
 
-- **Dynamic behaviour dispatch `module.child_spec(arg)` (`init_child/1,2`, lines 816–833; reached from `start_link/2`, `init/2`, `child_spec/2`, `start_child/2`).**
+- **Dynamic behaviour dispatch `module.child_spec(arg)` (`init_child/1,2`, lines 816–833; reached from `start_link/2`, `init/2`, `child_spec/2`, `start_child/2`).**\
   This invokes an arbitrary module's `child_spec/1`; the resulting spec's `:start` MFA is later `apply`-ed by OTP. This is the defining contract of a supervisor, not a bug. The security-relevant question is answerable **entirely within this file**: does attacker-controlled input reach the dispatched `module` via the public API? No — the `when is_atom(module)` guards at lines 816 and 820 mean `module` is always a pre-existing atom placed into the supervision tree by the developer. There is no string→atom conversion (confirmed by grep, below), so no atom-table exhaustion and no confusable/injection surface. The downstream MFA execution lives in OTP `:supervisor` (Erlang), which is neither in this folder nor a listed neighbour — but the ruling-out verdict does **not** depend on that code: the verdict rests on the in-file guard, which I read directly.
   - Confidence: High.
   - Axes examined: input provenance of `module` (developer-supplied atom via `children`/`child_spec`/`start_child`); string→atom conversion (none); guard reachability (`is_atom/1` at 816, 820). | Not examined: none — every axis bearing on *this file's* contribution to the sink was read in-file.
   - Basis: full read of the dispatch path (lines 813–854) + grep for `*_to_atom`/`concat`/`apply` (no matches, see below).
 
-- **`Code.ensure_loaded?(module)` (`child_spec_error/1`, line 857).**
+- **`Code.ensure_loaded?(module)` (`child_spec_error/1`, line 857).**\
   Reached only on the error path when a developer-supplied module lacks `child_spec/1` (caller at line 827). The argument is the same already-existing, developer-controlled atom that `init_child/2` was about to invoke anyway; loading it grants no surface beyond the dispatch above. `Code.ensure_loaded?/1` is defined in `lib/elixir/lib/code.ex` (the reachable neighbour for this call), and takes an atom module name — it performs no string→atom conversion of external input. Not attacker-controllable via this file's public API in normal use.
   - Confidence: High.
   - Axes examined: caller provenance (single caller, line 827, same guarded atom); argument type (atom, guarded upstream). | Not examined: none for this file's contribution.

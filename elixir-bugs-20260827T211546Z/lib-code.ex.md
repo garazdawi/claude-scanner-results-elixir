@@ -44,22 +44,22 @@ _Re-reviewed on 2026-08-28 (hedge-resolution pass over the 2026-08-27 first pass
 
 ### Ruled out
 
-- **`eval_string`/`eval_quoted` default-arg + env-vs-list dispatch** (lines 633-639, 1186-1192) — both clauses (`%Macro.Env{}` and `is_list(opts)`) correctly thread `validate_binding`/`env_for_eval`. A non-list, non-env third argument raises `FunctionClauseError` naming `Code.eval_string/3` — the function the caller actually invoked (so, unlike the `compiler_options` case, the error is *not* misdirected to an internal helper). Spec violation (misuse), not a reachable bug.
+- **`eval_string`/`eval_quoted` default-arg + env-vs-list dispatch** (lines 633-639, 1186-1192) — both clauses (`%Macro.Env{}` and `is_list(opts)`) correctly thread `validate_binding`/`env_for_eval`. A non-list, non-env third argument raises `FunctionClauseError` naming `Code.eval_string/3` — the function the caller actually invoked (so, unlike the `compiler_options` case, the error is *not* misdirected to an internal helper). Spec violation (misuse), not a reachable bug.\
   Basis: `verified`. Axes examined: third-arg type — tried `Code.eval_string("1", [], :bad)` (atom) → `FunctionClauseError`, and `Code.eval_string("1", [], %{a: 1})` (non-`Env` map/struct) → `FunctionClauseError`; error names the public `/3` head, not a private helper. | Not examined: none.
 
-- **`with_diagnostics(opts \\ [], fun)` default on first of two params** — generates `/1` and `/2`; `with_diagnostics(fn -> … end)` binds `opts=[]`, `fun=fn`, and the `after` block restores/erases `:elixir_code_diagnostics` from the captured prior value.
+- **`with_diagnostics(opts \\ [], fun)` default on first of two params** — generates `/1` and `/2`; `with_diagnostics(fn -> … end)` binds `opts=[]`, `fun=fn`, and the `after` block restores/erases `:elixir_code_diagnostics` from the captured prior value.\
   Basis: `verified`. Axes examined: arity dispatch + process-dictionary restore — called `Code.with_diagnostics(fn -> IO.warn("x") end)`, inspected returned diagnostics and confirmed the process key was restored. | Not examined: none.
 
-- **`next_eol_count/2` clause ordering (`?\n` before `?\r,?\n`)** — a `\r\n` pair still matches the two-element clause because the single-`?\n` head cannot match a leading `?\r`; lone `?\r` falls through to the catch-all, consistent with documented `\r\n`→`\n`.
+- **`next_eol_count/2` clause ordering (`?\n` before `?\r,?\n`)** — a `\r\n` pair still matches the two-element clause because the single-`?\n` head cannot match a leading `?\r`; lone `?\r` falls through to the catch-all, consistent with documented `\r\n`→`\n`.\
   Basis: `verified`. Axes examined: newline-shape counting — the `":foo # :bar"` and multi-line comment doctests exercise the counting and reproduce exactly. | Not examined: none.
 
-- **`min(previous_eol_count, last_comment_distance)` with `:infinity`** — `last_comment_distance/2` returns the atom `:infinity` for an empty comment list; Erlang term ordering ranks atoms above numbers, so `min(int, :infinity)` yields the integer ("no cap").
+- **`min(previous_eol_count, last_comment_distance)` with `:infinity`** — `last_comment_distance/2` returns the atom `:infinity` for an empty comment list; Erlang term ordering ranks atoms above numbers, so `min(int, :infinity)` yields the integer ("no cap").\
   Basis: `verified`. Axes examined: term-ordering of atom-vs-integer in `min/2` — comment doctests produce the documented `previous_eol_count` values 2 and 3. | Not examined: none.
 
-- **`delete_path/1` return handling** (lines 540-548) — `:code.del_path/1`'s documented return set (`true`/`false`/`{:error,:bad_name}`) is covered; `delete_path` always feeds it a charlist via `to_charlist(Path.expand(path))`, so the `function_clause`-on-non-list branch of `del_path` is unreachable from here.
+- **`delete_path/1` return handling** (lines 540-548) — `:code.del_path/1`'s documented return set (`true`/`false`/`{:error,:bad_name}`) is covered; `delete_path` always feeds it a charlist via `to_charlist(Path.expand(path))`, so the `function_clause`-on-non-list branch of `del_path` is unreachable from here.\
   Basis: `asserted`. Axes examined: return shape for an absent path — `code:del_path("/no/such/dir")` → `false` (boolean branch taken); non-charlist input — `code:del_path(123)` → `function_clause`, confirming that branch exists but is unreachable because the caller always passes a charlist. | Not examined: exhaustive enumeration of which charlist inputs yield `{:error,:bad_name}` versus any undocumented shape — this would require reading OTP `code.erl`, which by rule does not clear the axis, and I could not construct an input that produced a shape outside the handled set, so I cannot *prove by execution* that no other shape exists. Stays `asserted`.
 
-- **`get_beam_and_path/1` binding of `beam` vs `filename`** (lines 2344-2352) — `{beam, filename}` is returned and destructured as `{bin, beam_path}` in `fetch_docs/1`; `bin` (object code) is passed to `fetch_docs_from_beam`, `beam_path` used only for `Path.expand`, matching `:code.get_object_code/1`'s `{Module, Binary, Filename}` tuple order.
+- **`get_beam_and_path/1` binding of `beam` vs `filename`** (lines 2344-2352) — `{beam, filename}` is returned and destructured as `{bin, beam_path}` in `fetch_docs/1`; `bin` (object code) is passed to `fetch_docs_from_beam`, `beam_path` used only for `Path.expand`, matching `:code.get_object_code/1`'s `{Module, Binary, Filename}` tuple order.\
   Basis: `verified`. Axes examined: tuple-position binding — `Code.fetch_docs(Atom)` returns the expected `:docs_v1` tuple and correct module-doc line (first pass). | Not examined: none.
 
 ### Did I verify this

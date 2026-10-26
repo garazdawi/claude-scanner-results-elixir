@@ -25,8 +25,8 @@ Two total-function / contract defects, both now verified by execution:
 - **Location** — `lib/ex_unit/assertions.ex:982` (`do_catch/2`), interacting with `mark_as_generated/1` at lines 754-759.
 - **Class** — Missing clause / non-total function (list-guard clause shadows the fallback for arbitrary expressions).
 - **Impact** — A caller who writes `catch_throw([1, 2])` (or `catch_exit`/`catch_error` with any list-literal expression whose elements are not AST `{name, meta, context}` triples) gets a compile-time `FunctionClauseError` deep inside `ExUnit.Assertions.mark_as_generated/1` instead of the documented runtime assertion behaviour ("Expected to catch throw, got nothing"). The crash aborts compilation of the whole test module and its message points at ExUnit internals, telling the caller nothing about what to fix.
-- **Evidence** — `verified`.
-  Command: `elixir /tmp/t2.exs` with `test "..." do catch_throw([1, 2, 3]) end`.
+- **Evidence** — `verified`.\
+  Command: `elixir /tmp/t2.exs` with `test "..." do catch_throw([1, 2, 3]) end`.\
   Output:
   ```
   ** (FunctionClauseError) no function clause matching in anonymous fn/1 in ExUnit.Assertions.mark_as_generated/1

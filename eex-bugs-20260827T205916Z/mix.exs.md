@@ -17,15 +17,15 @@ No findings
 
 ### Ruled out
 
-- **`version: System.version()`** — Whether tying the app version to the running Elixir `System.version()` could produce a wrong/invalid version accepted by Mix.
-  Confidence: high (ruled out).
-  Axes examined: value validity (does the returned string parse as the SemVer Mix requires); acceptance by Mix's version validator (`Version.parse!/1`).
-  Not examined: none.
+- **`version: System.version()`** — Whether tying the app version to the running Elixir `System.version()` could produce a wrong/invalid version accepted by Mix.\
+  Confidence: high (ruled out).\
+  Axes examined: value validity (does the returned string parse as the SemVer Mix requires); acceptance by Mix's version validator (`Version.parse!/1`).\
+  Not examined: none.\
   Evidence (executed): `elixir -e 'IO.puts(System.version())'` prints `1.21.0-dev`; `Version.parse("1.21.0-dev")` → `{:ok, %Version{major: 1, minor: 21, patch: 0, pre: ["dev"]}}` and `Version.parse!/1` (the same validator Mix applies to `:version`) succeeds without raising. `System.version/0` is a pure accessor for the compile-time VSN string; there is no callable API in this file through which any caller supplies input, so there is no injection/tamper axis to try. Ruled out.
 
-- **`build_per_environment: false`** — Whether setting this could be a defect.
-  Confidence: high (ruled out).
-  Axes examined: option validity (is `build_per_environment` a documented `Mix.Project` key accepting a boolean).
+- **`build_per_environment: false`** — Whether setting this could be a defect.\
+  Confidence: high (ruled out).\
+  Axes examined: option validity (is `build_per_environment` a documented `Mix.Project` key accepting a boolean).\
   Not examined: none — this is a static literal boolean in a config keyword list; it takes no runtime input and has no comparand implementation to differ from. It is a deliberate configuration choice for an in-tree standard-library app (whose build is shared, not per-env), not a defect.
 
 ## Risks / caveats

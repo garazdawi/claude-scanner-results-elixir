@@ -16,43 +16,43 @@ No findings
 
 ### Ruled out
 
-- **Atom creation — `String.to_unsafe_atom(name)` in `reserved_app/1` (line 212) and `Module.concat(Elixir, name)` in `check_mod_name_availability!/1` (line 228).**
-  Both create non-GC'd atoms (CWE-770), but `name` is the operator's `--app`/path-basename / `--module` value, reached only after a format regex, and only one atom is created per process invocation.
-  Confidence: High.
-  Axes examined: reachability short-circuit (`invalid_app(name) || reserved_app(name)`), the `$`-anchor trailing-newline bypass, atom-value bound per invocation. **Not examined: none.**
+- **Atom creation — `String.to_unsafe_atom(name)` in `reserved_app/1` (line 212) and `Module.concat(Elixir, name)` in `check_mod_name_availability!/1` (line 228).**\
+  Both create non-GC'd atoms (CWE-770), but `name` is the operator's `--app`/path-basename / `--module` value, reached only after a format regex, and only one atom is created per process invocation.\
+  Confidence: High.\
+  Axes examined: reachability short-circuit (`invalid_app(name) || reserved_app(name)`), the `$`-anchor trailing-newline bypass, atom-value bound per invocation. **Not examined: none.**\
   Evidence (executed, OTP 29 / Elixir 1.21.0-dev): reproduced the file's own guards. `check.("Bad Name") → "invalid"` and `check.("../evil") → "invalid"` — i.e. `reserved_app` (and its `to_unsafe_atom`) is never reached for a name that fails `^[a-z][a-z0-9_]*$`; the `||` short-circuits on `invalid_app`'s truthy string. `check.("mix") → {:reserved, true}`, `check.("goodname") → {:ok_atom_created, :goodname}`. The trailing-newline axis: `"mix\n" =~ ~r/^[a-z][a-z0-9_]*$/ → true`, and `check.("mix\n") → {:ok_atom_created, :"mix\n"}` — so a single trailing `\n` does slip past the regex and yields the atom `:"mix\n"`, but that is still exactly **one** operator-chosen atom per `mix new` invocation with no external byte source driving a loop. Mid-string newline is rejected (`"foo\nbar" → false`). Not exhaustion.
 
-- **File sinks — `File.mkdir_p!`/`File.cd!` (lines 81–84) and `create_file`/`create_directory` (`Mix.Generator`, lines 104–123).**
-  Directory paths come straight from the operator's `PATH` argument; generated file paths embed `mod_filename = Macro.underscore(mod)`, and `mod` is gated by `check_mod_name_validity!` (`^[A-Z]\w*(\.[A-Z]\w*)*$`, ASCII `\w`, no `..` because every dot must be followed by `[A-Z]`).
-  Confidence: High.
-  Axes examined: regex anchor (incl. trailing-newline), `Macro.underscore` output for a boundary input, dependency/archive-derived path component (none present). **Not examined: none.**
+- **File sinks — `File.mkdir_p!`/`File.cd!` (lines 81–84) and `create_file`/`create_directory` (`Mix.Generator`, lines 104–123).**\
+  Directory paths come straight from the operator's `PATH` argument; generated file paths embed `mod_filename = Macro.underscore(mod)`, and `mod` is gated by `check_mod_name_validity!` (`^[A-Z]\w*(\.[A-Z]\w*)*$`, ASCII `\w`, no `..` because every dot must be followed by `[A-Z]`).\
+  Confidence: High.\
+  Axes examined: regex anchor (incl. trailing-newline), `Macro.underscore` output for a boundary input, dependency/archive-derived path component (none present). **Not examined: none.**\
   Evidence (executed): `"Foo\n" =~ ~r/^[A-Z]\w*(\.[A-Z]\w*)*$/ → true`, `Macro.underscore("Foo\n") → "foo\n"` — the only bypass is a lone trailing newline, producing a trailing-newline filename in the operator's own new project, not a traversal or a second path segment. `"Foo\ndef evil" → false` (no multi-line injection). No zip-slip surface exists here.
 
-- **Template interpolation — `embed_template`/`*_template(assigns)` (lines 269–504).**
-  `embed_template` compiles each EEx template to a function at Mix build time; at `mix new` runtime the assigns (`@mod`, `@app`, `@version`) are string-substituted and are **not** re-parsed as EEx.
-  Confidence: High.
-  Axes examined: whether an assign value containing `<%= ... %>`/`<% ... %>` is re-evaluated. **Not examined: none.**
+- **Template interpolation — `embed_template`/`*_template(assigns)` (lines 269–504).**\
+  `embed_template` compiles each EEx template to a function at Mix build time; at `mix new` runtime the assigns (`@mod`, `@app`, `@version`) are string-substituted and are **not** re-parsed as EEx.\
+  Confidence: High.\
+  Axes examined: whether an assign value containing `<%= ... %>`/`<% ... %>` is re-evaluated. **Not examined: none.**\
   Evidence (executed): defined a module with `embed_template(:lib, ...)` and called `lib_template(mod: "Foo <%= System.cmd(\"id\", []) %> <% :ouch %>")`. Output was the literal string `defmodule Foo <%= System.cmd("id", []) %> <% :ouch %> do` — the EEx tags in the assign appear verbatim, no shell exec, no second-stage evaluation. So there is no template-injection sink; assigns are additionally regex-validated operator input.
 
-- **Compile-time / external read — `Mix.Project.in_project(:umbrella_check, "../..", …)` in `in_umbrella?/0` (line 259).**
-  This evaluates `../../mix.exs` as code, but that is the operator's own umbrella project config; `mix.exs` execution is Mix's documented, by-design behaviour (the operator who controls it already has RCE) and is out of scope per the folder threat model. The task atom `:umbrella_check` is a fixed literal; the surrounding `try/catch _, _ -> false` swallows any crash.
-  Confidence: High.
+- **Compile-time / external read — `Mix.Project.in_project(:umbrella_check, "../..", …)` in `in_umbrella?/0` (line 259).**\
+  This evaluates `../../mix.exs` as code, but that is the operator's own umbrella project config; `mix.exs` execution is Mix's documented, by-design behaviour (the operator who controls it already has RCE) and is out of scope per the folder threat model. The task atom `:umbrella_check` is a fixed literal; the surrounding `try/catch _, _ -> false` swallows any crash.\
+  Confidence: High.\
   Axes examined: source of the evaluated path (fixed `"../.."`, operator cwd), atom literal-ness, crash containment. **Not examined: none** — all values are in-file literals or operator filesystem state, no dependency/network channel.
 
-- **`Application.ensure_loaded(atom_name)` (line 214).**
-  Loads an app resource (`.app`) file, not code; the atom is operator- and regex-gated (see first ruled-out entry).
-  Confidence: High.
+- **`Application.ensure_loaded(atom_name)` (line 214).**\
+  Loads an app resource (`.app`) file, not code; the atom is operator- and regex-gated (see first ruled-out entry).\
+  Confidence: High.\
   Axes examined: same reachability gate as the atom-creation entry. **Not examined: none.** No code-execution or injection sink.
 
-- **Shell/output — `Mix.shell().info(…)` with `cd_path(path)` (lines 130, 158, 179) and `Mix.shell().yes?(msg)` (line 238).**
-  These print informational text (`"cd <path>"`) to the operator's terminal; `path` is never handed to a shell for execution, so there is no command injection, and the operator authored the echoed string.
-  Confidence: High.
+- **Shell/output — `Mix.shell().info(…)` with `cd_path(path)` (lines 130, 158, 179) and `Mix.shell().yes?(msg)` (line 238).**\
+  These print informational text (`"cd <path>"`) to the operator's terminal; `path` is never handed to a shell for execution, so there is no command injection, and the operator authored the echoed string.\
+  Confidence: High.\
   Axes examined: whether the path string reaches a shell-exec sink (it does not — `info`/`yes?` are display only). **Not examined: none.**
 
-- **Dead defensive code.**
-  All guards (`invalid_app`, `reserved_app`, `check_mod_name_validity!`, `check_mod_name_availability!`, `check_directory_existence!`) are reachable and fire. Every reserved name in `reserved_application_names/0` is lowercase-ASCII and passes the `invalid_app` gate, so none is shadowed into unreachability.
-  Confidence: High.
-  Axes examined: reachability of each guard, whether any reserved name is pre-filtered by `invalid_app`. **Not examined: none.**
+- **Dead defensive code.**\
+  All guards (`invalid_app`, `reserved_app`, `check_mod_name_validity!`, `check_mod_name_availability!`, `check_directory_existence!`) are reachable and fire. Every reserved name in `reserved_application_names/0` is lowercase-ASCII and passes the `invalid_app` gate, so none is shadowed into unreachability.\
+  Confidence: High.\
+  Axes examined: reachability of each guard, whether any reserved name is pre-filtered by `invalid_app`. **Not examined: none.**\
   Evidence (executed): `check.("mix") → {:reserved, true}` confirms a reserved lowercase name reaches and trips `reserved_app`; invalid inputs trip `invalid_app` first.
 
 ## Risks / caveats

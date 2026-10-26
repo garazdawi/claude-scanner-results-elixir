@@ -18,49 +18,49 @@ No findings
 
 ### Ruled out
 
-- **`c/2` compiles arbitrary files and writes `.beam` output** (`helpers.ex:216`–`250`, `File.write!` at `237`).
-  Both the file list and destination `path` are developer-typed REPL arguments, not data from a dependency/archive. The write filename component `base` is confined to a single path segment.
-  Confidence: High.
-  Axes examined: path-traversal via the write basename (`Path.basename |> Path.rootname`), multi-extension inputs, `..`-laden inputs. Not examined: none.
+- **`c/2` compiles arbitrary files and writes `.beam` output** (`helpers.ex:216`–`250`, `File.write!` at `237`).\
+  Both the file list and destination `path` are developer-typed REPL arguments, not data from a dependency/archive. The write filename component `base` is confined to a single path segment.\
+  Confidence: High.\
+  Axes examined: path-traversal via the write basename (`Path.basename |> Path.rootname`), multi-extension inputs, `..`-laden inputs. Not examined: none.\
   Evidence (re-run OTP 29): `"../../etc/evil.erl" → base="evil" → /out/evil.beam`; `"/a/b/../../../etc/passwd.erl" → "passwd" → /out/passwd.beam`; `"....//x.erl" → "x"`; `"foo.beam.erl" → "foo.beam" → /out/foo.beam.beam` (rootname strips only the last extension, but the result is still a single segment — no traversal). Every case collapses to one path component under the developer-chosen `path`.
 
-- **`pid/1,3`, `port/1,2`, `ref/1,4` parse strings via `:erlang.list_to_pid/list_to_port/list_to_ref`** (`helpers.ex:1616`–`1724`).
-  No atom-table growth and `:badarg`/`ArgumentError` on malformed input; arguments are developer-typed.
-  Confidence: High.
-  Axes examined: atom-table exhaustion under repeated parsing, malformed/garbage/empty input, out-of-range terms. Not examined: none.
+- **`pid/1,3`, `port/1,2`, `ref/1,4` parse strings via `:erlang.list_to_pid/list_to_port/list_to_ref`** (`helpers.ex:1616`–`1724`).\
+  No atom-table growth and `:badarg`/`ArgumentError` on malformed input; arguments are developer-typed.\
+  Confidence: High.\
+  Axes examined: atom-table exhaustion under repeated parsing, malformed/garbage/empty input, out-of-range terms. Not examined: none.\
   Evidence (re-run OTP 29): atom delta = 0 over 200 interpolated `list_to_pid/port/ref` calls; `list_to_pid(~c"garbage")`, `list_to_pid(~c"<9.9.9>")`, `list_to_pid(~c"")` all return `{:error, :badarg}`. No deserialization or atom-creation sink.
 
-- **`process_info/1` prints `$process_label` without terminal-escape sanitization** (`helpers.ex:1005`–`1007` `format_process_label/1`, printed via `print_entry`).
-  A binary `$process_label` is returned raw (`format_process_label(label) when is_binary(label) -> label`, line 1006) whereas registered names and initial calls go through `inspect` (lines 1010, 1012–1013, which escape control bytes). Terminal escapes in a raw binary label therefore survive to the terminal.
-  Ruled out: the label's source is an in-VM process the developer explicitly selects to inspect. Under the standing threat model a co-tenant BEAM process able to set a hostile `$process_label` already runs fully-trusted code with direct group-leader/terminal access, so the escape adds no escalation, and this matches the model's accepted local-trust terminal-output pattern (`Macro.Env`/source-origin content is likewise unsanitized by design). Not reached during `mix deps.get`/`compile`/`archive.install`.
-  Confidence: High (that the escape survives) / Medium (that it is non-escalating — see caveat).
+- **`process_info/1` prints `$process_label` without terminal-escape sanitization** (`helpers.ex:1005`–`1007` `format_process_label/1`, printed via `print_entry`).\
+  A binary `$process_label` is returned raw (`format_process_label(label) when is_binary(label) -> label`, line 1006) whereas registered names and initial calls go through `inspect` (lines 1010, 1012–1013, which escape control bytes). Terminal escapes in a raw binary label therefore survive to the terminal.\
+  Ruled out: the label's source is an in-VM process the developer explicitly selects to inspect. Under the standing threat model a co-tenant BEAM process able to set a hostile `$process_label` already runs fully-trusted code with direct group-leader/terminal access, so the escape adds no escalation, and this matches the model's accepted local-trust terminal-output pattern (`Macro.Env`/source-origin content is likewise unsanitized by design). Not reached during `mix deps.get`/`compile`/`archive.install`.\
+  Confidence: High (that the escape survives) / Medium (that it is non-escalating — see caveat).\
   Axes examined: raw-vs-`inspect` divergence between the binary and non-binary label clauses (confirmed by reading lines 1005–1013), reachability during dependency/build flows. Not examined: none required — the divergence is in-file and read directly, not assumed of a neighbour.
 
-- **`r/1` recompiles the path from `module_info(:compile)[:source]`** (`helpers.ex:1041` `source_path/1`, used `496`–`523`).
-  The source path is a `.beam` attribute baked at (possibly dependency-authored) compile time, so it is externally influenced, but it is gated by `File.exists?(source)` (`502`); a dependency's compile-time absolute path essentially never exists on the victim machine (raises "could not find source"); the developer must explicitly invoke `r/ThatModule`; and the outcome is only recompiling the real on-disk source of a developer-selected module.
-  Confidence: High.
+- **`r/1` recompiles the path from `module_info(:compile)[:source]`** (`helpers.ex:1041` `source_path/1`, used `496`–`523`).\
+  The source path is a `.beam` attribute baked at (possibly dependency-authored) compile time, so it is externally influenced, but it is gated by `File.exists?(source)` (`502`); a dependency's compile-time absolute path essentially never exists on the victim machine (raises "could not find source"); the developer must explicitly invoke `r/ThatModule`; and the outcome is only recompiling the real on-disk source of a developer-selected module.\
+  Confidence: High.\
   Axes examined: attacker-influenced source attribute, existence gate. Not examined: none.
 
-- **`import_file` / `import_file_if_available` read and evaluate a file** (`helpers.ex:1475`–`1530`).
-  The macros require a *literal* binary path (`when is_binary(path)`, enforced at compile time; non-literal clauses raise), so no dynamic/untrusted path can be injected. This is the documented `.iex.exs` mechanism — arbitrary-code-by-design, local/operator-controlled.
-  Confidence: High.
+- **`import_file` / `import_file_if_available` read and evaluate a file** (`helpers.ex:1475`–`1530`).\
+  The macros require a *literal* binary path (`when is_binary(path)`, enforced at compile time; non-literal clauses raise), so no dynamic/untrusted path can be injected. This is the documented `.iex.exs` mechanism — arbitrary-code-by-design, local/operator-controlled.\
+  Confidence: High.\
   Axes examined: dynamic-path injection, literal-only enforcement. Not examined: none.
 
-- **`nl/2` and `process_info/1` issue `:erpc` calls to remote nodes** (`helpers.ex:1753`, `896`–`898`).
-  The target is `node(pid)` / a developer-supplied node, reached only through connected distributed-Erlang peers. Per the standing threat model, distribution-cluster trust is governed by the shared magic cookie (a node sharing the cookie is fully trusted and is effectively an operator); this is the model's explicitly-declared primary trust boundary, not an in-scope defense line for this file. The pid/node arguments are developer-typed at the REPL.
-  Confidence: High.
+- **`nl/2` and `process_info/1` issue `:erpc` calls to remote nodes** (`helpers.ex:1753`, `896`–`898`).\
+  The target is `node(pid)` / a developer-supplied node, reached only through connected distributed-Erlang peers. Per the standing threat model, distribution-cluster trust is governed by the shared magic cookie (a node sharing the cookie is fully trusted and is effectively an operator); this is the model's explicitly-declared primary trust boundary, not an in-scope defense line for this file. The pid/node arguments are developer-typed at the REPL.\
+  Confidence: High.\
   This entry was previously hedged as "outside this file's boundary and out of scope." Re-grounded: the boundary is a threat-model given (distribution = full trust), not an unverified claim about neighbour code, so no upgrade is warranted. Not examined: none (there is no additional axis to try — the trust is definitional).
 
-- **`recompile/1` runs `Mix.Task.run("compile", …)`** (`helpers.ex:118`–`172`).
-  Operates on the developer's own current Mix project/install; not driven by external manifest or archive data reaching this file.
+- **`recompile/1` runs `Mix.Task.run("compile", …)`** (`helpers.ex:118`–`172`).\
+  Operates on the developer's own current Mix project/install; not driven by external manifest or archive data reaching this file.\
   Confidence: High. Not examined: none.
 
-- **`print_percentage/3` computes `trunc(min / max * 100)`** (`helpers.ex:750`–`754`).
-  `max` is a VM statistic (`:atom_limit`, `:ets_limit`, …), never zero and not attacker-influenced, so no division-by-zero is reachable.
+- **`print_percentage/3` computes `trunc(min / max * 100)`** (`helpers.ex:750`–`754`).\
+  `max` is a VM statistic (`:atom_limit`, `:ets_limit`, …), never zero and not attacker-influenced, so no division-by-zero is reachable.\
   Confidence: High. Not examined: none.
 
-- **`Process.put(:iex_imported_paths, …)` and other `Process.get/put`** (`helpers.ex:1483`, `1189`, `1598`, etc.).
-  Touch only the shell process's own process dictionary — no cross-process/cross-tenant shared-state poisoning.
+- **`Process.put(:iex_imported_paths, …)` and other `Process.get/put`** (`helpers.ex:1483`, `1189`, `1598`, etc.).\
+  Touch only the shell process's own process dictionary — no cross-process/cross-tenant shared-state poisoning.\
   Confidence: High. Not examined: none.
 
 ## Risks / caveats

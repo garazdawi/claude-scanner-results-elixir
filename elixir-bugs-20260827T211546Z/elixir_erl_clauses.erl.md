@@ -28,44 +28,44 @@ The module has no `-spec` declarations, so the spec-totality checklist is vacuou
 
 ### Ruled out
 
-**Operator / precedence typo**
-Reason: the only compound conditionals are the nested `case Extra of [] -> ...` in `guards/4` and the single `Context =/= match` guard in `match/4`; neither uses `,`/`;` guard sequencing or boolean `andalso`/`orelse`, so there is no precedence to mis-order.
-Axes examined: empty guard list, non-empty guard list, empty extra-guards, non-empty extra-guards, context=match vs other | Not examined: none
+**Operator / precedence typo**\
+Reason: the only compound conditionals are the nested `case Extra of [] -> ...` in `guards/4` and the single `Context =/= match` guard in `match/4`; neither uses `,`/`;` guard sequencing or boolean `andalso`/`orelse`, so there is no precedence to mis-order.\
+Axes examined: empty guard list, non-empty guard list, empty extra-guards, non-empty extra-guards, context=match vs other | Not examined: none\
 Basis: verified
 
-**Missing clause / catch-all**
-Reason: `get_clauses/3` has a `_ ->` fallthrough; `match/4`, `guards/4`, `unblock/1` are total over their declared domains; the only non-total heads (`each_clause/2`, `clauses/2` recursion) take compiler-constructed tuples, not public-API input.
-Axes examined: keyfind hit/miss, non-list value, `{match}` vs `{expr}` clause, block vs non-block expr | Not examined: clause kinds other than match/expr (internal-only, out of scope)
+**Missing clause / catch-all**\
+Reason: `get_clauses/3` has a `_ ->` fallthrough; `match/4`, `guards/4`, `unblock/1` are total over their declared domains; the only non-total heads (`each_clause/2`, `clauses/2` recursion) take compiler-constructed tuples, not public-API input.\
+Axes examined: keyfind hit/miss, non-list value, `{match}` vs `{expr}` clause, block vs non-block expr | Not examined: clause kinds other than match/expr (internal-only, out of scope)\
 Basis: verified
 
-**State / accumulator threading error**
-Reason: `clause/6` correctly uses `SA` for extra_guards, `SG` (reset) for expr translation, and returns `SE`; `match/4` restores the caller’s context; `clauses/2` uses `mapfoldl` threading state across clauses. The discarded guard-state is deliberate (guards bind nothing that escapes).
-Axes examined: context save/restore, extra_guards propagation, mapfoldl state threading, single vs multiple clauses | Not examined: none
+**State / accumulator threading error**\
+Reason: `clause/6` correctly uses `SA` for extra_guards, `SG` (reset) for expr translation, and returns `SE`; `match/4` restores the caller’s context; `clauses/2` uses `mapfoldl` threading state across clauses. The discarded guard-state is deliberate (guards bind nothing that escapes).\
+Axes examined: context save/restore, extra_guards propagation, mapfoldl state threading, single vs multiple clauses | Not examined: none\
 Basis: verified
 
-**Contract violation / documented behaviour mismatch**
-Reason: no `-spec` or docstring makes a promise the code breaks; return shapes (`{clause,...}` tuples and `{Translated, State}` pairs) are consistent across `clause/6`, `each_clause/2`, `clauses/2`.
-Axes examined: return-tuple arity, empty-clause-list return `{[],S}`, comprehension output shape | Not examined: none
+**Contract violation / documented behaviour mismatch**\
+Reason: no `-spec` or docstring makes a promise the code breaks; return shapes (`{clause,...}` tuples and `{Translated, State}` pairs) are consistent across `clause/6`, `each_clause/2`, `clauses/2`.\
+Axes examined: return-tuple arity, empty-clause-list return `{[],S}`, comprehension output shape | Not examined: none\
 Basis: verified
 
-**Crash on stray / unexpected input**
-Reason: the only public-API surface reachable with free-form data is `get_clauses/3`’s `Keyword`, which is fully guarded (`is_list`, catch-all, generator filtering); other entry points consume compiler-internal AST whose shape is a caller contract.
-Axes examined: keyword missing key, non-list clauses value, malformed `->` entries, empty keyword | Not examined: none
+**Crash on stray / unexpected input**\
+Reason: the only public-API surface reachable with free-form data is `get_clauses/3`’s `Keyword`, which is fully guarded (`is_list`, catch-all, generator filtering); other entry points consume compiler-internal AST whose shape is a caller contract.\
+Axes examined: keyword missing key, non-list clauses value, malformed `->` entries, empty keyword | Not examined: none\
 Basis: verified
 
-**Quadratic-where-linear / Repeated work**
-Reason: no accumulator uses `++`; the two list comprehensions and `mapfoldl` are single-pass; no pattern compilation or repeated scans occur.
-Axes examined: list-comprehension building, mapfoldl accumulation | Not examined: none
+**Quadratic-where-linear / Repeated work**\
+Reason: no accumulator uses `++`; the two list comprehensions and `mapfoldl` are single-pass; no pattern compilation or repeated scans occur.\
+Axes examined: list-comprehension building, mapfoldl accumulation | Not examined: none\
 Basis: verified
 
-**Resource leak / Infinite loop / Race condition**
-Reason: the module is pure list/tuple transformation — no files, ETS, processes, monitors, receives, or shared mutable state are touched.
-Axes examined: full read for side-effecting BIFs (none present) | Not examined: none
+**Resource leak / Infinite loop / Race condition**\
+Reason: the module is pure list/tuple transformation — no files, ETS, processes, monitors, receives, or shared mutable state are touched.\
+Axes examined: full read for side-effecting BIFs (none present) | Not examined: none\
 Basis: verified
 
-**Off-by-one / Encoding / Wrong atom / Dead code / Wrong scope**
-Reason: no arithmetic, no byte/codepoint handling, no atom-name literals beyond `'->'`/`'block'`/`match`/`guard` (all correct and matched consistently), no unreachable branches (every clause is reached by a distinct input shape), and no side-effect ordering.
-Axes examined: atom literals cross-checked against usage, block-unwrap tag, context atoms | Not examined: none
+**Off-by-one / Encoding / Wrong atom / Dead code / Wrong scope**\
+Reason: no arithmetic, no byte/codepoint handling, no atom-name literals beyond `'->'`/`'block'`/`match`/`guard` (all correct and matched consistently), no unreachable branches (every clause is reached by a distinct input shape), and no side-effect ordering.\
+Axes examined: atom literals cross-checked against usage, block-unwrap tag, context atoms | Not examined: none\
 Basis: verified
 
 ### Did I verify this?

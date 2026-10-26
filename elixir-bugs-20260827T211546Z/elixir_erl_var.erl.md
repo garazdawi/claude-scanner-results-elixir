@@ -29,96 +29,96 @@ The file is small and self-contained (128 lines, no `-spec`s). I traced every ex
 
 ### Ruled out
 
-**Operator / precedence typo**
-Reason: the only boolean guard (`dump_binding` line 112, `Version > PruneBefore orelse is_map_key(...)`) uses `orelse` deliberately (either condition keeps the var) and there are no `,`/`;` guard partitions to mis-bind.
-Axes examined: `Version > PruneBefore` true/false, `Unused` membership true/false, `PruneBefore` negative/zero/positive | Not examined: none
+**Operator / precedence typo**\
+Reason: the only boolean guard (`dump_binding` line 112, `Version > PruneBefore orelse is_map_key(...)`) uses `orelse` deliberately (either condition keeps the var) and there are no `,`/`;` guard partitions to mis-bind.\
+Axes examined: `Version > PruneBefore` true/false, `Unused` membership true/false, `PruneBefore` negative/zero/positive | Not examined: none\
 Basis: verified
 
-**Missing clause / catch-all**
-Reason: `dump_binding`'s fold has a final catch-all (line 125), `build`/`Counter` lookup has a `_` fallback (line 43), `load_binding` covers non-empty/empty×prune, and `translate`'s `case` covers all three map shapes.
-Axes examined: empty binding, single/multi binding, prune true/false, existing vs new version, Kind nil vs non-nil | Not examined: none
+**Missing clause / catch-all**\
+Reason: `dump_binding`'s fold has a final catch-all (line 125), `build`/`Counter` lookup has a `_` fallback (line 43), `load_binding` covers non-empty/empty×prune, and `translate`'s `case` covers all three map shapes.\
+Axes examined: empty binding, single/multi binding, prune true/false, existing vs new version, Kind nil vs non-nil | Not examined: none\
 Basis: verified
 
-**Wrong atom / wrong symbol**
-Reason: record/field/macro references (`var_names`, `counter`, `context`, `versioned_vars`, `unused`, `?ann`, `?var_context`) are consistent across read and write sites within the file.
-Axes examined: each field read/write pair, macro use sites | Not examined: definitions in `elixir.hrl` (header not in this file)
-Basis: asserted
+**Wrong atom / wrong symbol**\
+Reason: record/field/macro references (`var_names`, `counter`, `context`, `versioned_vars`, `unused`, `?ann`, `?var_context`) are consistent across read and write sites within the file.\
+Axes examined: each field read/write pair, macro use sites | Not examined: definitions in `elixir.hrl` (header not in this file)\
+Basis: asserted\
 Depends on: `elixir/lib/elixir/src/elixir.hrl` — defines `#elixir_erl{var_names,counter,context}`, `#elixir_ex{vars,unused}`, and macros `?ann`, `?var_context` with the field/arity this file uses.
 
-**State / accumulator threading error**
-Reason: `assign/4` returns the updated `NS#elixir_erl{var_names=NewVarNames}` (not the input `S`); `load_binding` threads `ExVars`/`Counter`/`Normalized` monotonically; `dump_binding` accumulates `{B,V}` consistently.
-Axes examined: reuse-existing vs new-var branch in `translate`/`load_binding`, counter increment on new var, V-removal vs V-keep | Not examined: none
+**State / accumulator threading error**\
+Reason: `assign/4` returns the updated `NS#elixir_erl{var_names=NewVarNames}` (not the input `S`); `load_binding` threads `ExVars`/`Counter`/`Normalized` monotonically; `dump_binding` accumulates `{B,V}` consistently.\
+Axes examined: reuse-existing vs new-var branch in `translate`/`load_binding`, counter increment on new var, V-removal vs V-keep | Not examined: none\
 Basis: verified
 
-**Off-by-one / wrong arithmetic**
-Reason: `to_erl_vars` counter runs `0..N-1`; `from_env` seeds `'_'` counter at `map_size` (= first unused index); `assign/2` `-(map_size+1)` stays strictly negative and unique.
-Axes examined: empty vars map, single var, multiple vars, interleaved assign/2 & assign/4 | Not examined: none
+**Off-by-one / wrong arithmetic**\
+Reason: `to_erl_vars` counter runs `0..N-1`; `from_env` seeds `'_'` counter at `map_size` (= first unused index); `assign/2` `-(map_size+1)` stays strictly negative and unique.\
+Axes examined: empty vars map, single var, multiple vars, interleaved assign/2 & assign/4 | Not examined: none\
 Basis: verified
 
-**Contract violation**
-Reason: `from_env/1`→`{list, state}`, `load_binding/2`→3-tuple, `dump_binding/4`→2-tuple, `assign/2`→3-tuple, `translate/4`/`assign/4`/`build/2`→2-tuple; each shape is consistent across all clauses of the function.
-Axes examined: every return site per export | Not examined: caller expectations in neighbour modules
-Basis: asserted
+**Contract violation**\
+Reason: `from_env/1`→`{list, state}`, `load_binding/2`→3-tuple, `dump_binding/4`→2-tuple, `assign/2`→3-tuple, `translate/4`/`assign/4`/`build/2`→2-tuple; each shape is consistent across all clauses of the function.\
+Axes examined: every return site per export | Not examined: caller expectations in neighbour modules\
+Basis: asserted\
 Depends on: `elixir_erl_pass`, `elixir_erl_for`, `elixir_erl_try`, `elixir`, `elixir_compiler` — consume these exact tuple shapes.
 
-**Crash on stray / unexpected input**
-Reason: reachable `badmatch`/`function_clause` points (`translate` missing `version`, `load_pair` non-2-tuple) require compiler-internal or contract-violating input, not stray data through a documented public API.
-Axes examined: binding element = atom / 3-tuple / 2-tuple with atom key / 2-tuple with tuple key; Meta with/without version | Not examined: none
+**Crash on stray / unexpected input**\
+Reason: reachable `badmatch`/`function_clause` points (`translate` missing `version`, `load_pair` non-2-tuple) require compiler-internal or contract-violating input, not stray data through a documented public API.\
+Axes examined: binding element = atom / 3-tuple / 2-tuple with atom key / 2-tuple with tuple key; Meta with/without version | Not examined: none\
 Basis: verified
 
-**Resource leak on error path**
-Reason: pure functional module — no ETS/ports/processes/monitors/file handles opened.
-Axes examined: full file scan for side-effecting BIFs | Not examined: none
+**Resource leak on error path**\
+Reason: pure functional module — no ETS/ports/processes/monitors/file handles opened.\
+Axes examined: full file scan for side-effecting BIFs | Not examined: none\
 Basis: verified
 
-**Silent corruption**
-Reason: binding load/dump are exact inverses (`load_pair` key encoding ↔ `dump_binding` `Key` reconstruction), and `Normalized` is reversed once so value order is faithful.
-Axes examined: atom key vs {name,context} key, nil vs non-nil Kind, prune vs no-prune | Not examined: none
+**Silent corruption**\
+Reason: binding load/dump are exact inverses (`load_pair` key encoding ↔ `dump_binding` `Key` reconstruction), and `Normalized` is reversed once so value order is faithful.\
+Axes examined: atom key vs {name,context} key, nil vs non-nil Kind, prune vs no-prune | Not examined: none\
 Basis: verified
 
-**Infinite loop / hang**
-Reason: no `receive`/gen_server here; `load_binding` recursion strictly consumes the binding list and the one-shot prune re-entry sets `Prune=false`, guaranteeing termination.
-Axes examined: prune true→false transition, empty list termination | Not examined: none
+**Infinite loop / hang**\
+Reason: no `receive`/gen_server here; `load_binding` recursion strictly consumes the binding list and the one-shot prune re-entry sets `Prune=false`, guaranteeing termination.\
+Axes examined: prune true→false transition, empty list termination | Not examined: none\
 Basis: verified
 
-**Quadratic-where-linear**
-Reason: no `Acc ++`, no binary prepend-in-loop, no `length/1` in guard, no per-iteration `lists:member`; accumulators use cons + single reverse.
-Axes examined: every recursive function (`to_erl_vars`, `load_binding`) | Not examined: none
+**Quadratic-where-linear**\
+Reason: no `Acc ++`, no binary prepend-in-loop, no `length/1` in guard, no per-iteration `lists:member`; accumulators use cons + single reverse.\
+Axes examined: every recursive function (`to_erl_vars`, `load_binding`) | Not examined: none\
 Basis: verified
 
-**Repeated work**
-Reason: no compiled patterns/regex/BEAM scans; each function does O(1) map ops per element.
-Axes examined: full file scan | Not examined: none
+**Repeated work**\
+Reason: no compiled patterns/regex/BEAM scans; each function does O(1) map ops per element.\
+Axes examined: full file scan | Not examined: none\
 Basis: verified
 
-**Dead / unreachable code**
-Reason: all clauses reachable — `translate/4` clause 1 for `'_'`, all `case` arms, both `load_binding/6` terminal clauses (via prune true/false), all three fold clauses.
-Axes examined: each clause's trigger input | Not examined: none
+**Dead / unreachable code**\
+Reason: all clauses reachable — `translate/4` clause 1 for `'_'`, all `case` arms, both `load_binding/6` terminal clauses (via prune true/false), all three fold clauses.\
+Axes examined: each clause's trigger input | Not examined: none\
 Basis: verified
 
-**Documented behaviour mismatch**
-Reason: module comment ("manipulate scope and its variables") is the only prose; no per-function docstrings/specs to contradict, and behaviour matches that description.
-Axes examined: module-level comment vs exported behaviour | Not examined: none
+**Documented behaviour mismatch**\
+Reason: module comment ("manipulate scope and its variables") is the only prose; no per-function docstrings/specs to contradict, and behaviour matches that description.\
+Axes examined: module-level comment vs exported behaviour | Not examined: none\
 Basis: verified
 
-**Race condition / shared mutable state**
-Reason: no shared mutable state — operates only on records/maps passed in and returned; runs in the caller compile process.
-Axes examined: full file scan for ETS/system_flag/process state | Not examined: none
+**Race condition / shared mutable state**\
+Reason: no shared mutable state — operates only on records/maps passed in and returned; runs in the caller compile process.\
+Axes examined: full file scan for ETS/system_flag/process state | Not examined: none\
 Basis: verified
 
-**Wrong scope / order of operations**
-Reason: `assign/4` builds the new name before extending `var_names`; `dump_binding` computes `ErlName` from the pre-existing `ErlVars` before reading `Binding`; no side effects to misorder.
-Axes examined: name-build vs map-extend order, key-reconstruct vs value-lookup order | Not examined: none
+**Wrong scope / order of operations**\
+Reason: `assign/4` builds the new name before extending `var_names`; `dump_binding` computes `ErlName` from the pre-existing `ErlVars` before reading `Binding`; no side effects to misorder.\
+Axes examined: name-build vs map-extend order, key-reconstruct vs value-lookup order | Not examined: none\
 Basis: verified
 
-**Encoding / unicode mishandling**
-Reason: variable names are atoms composed via `integer_to_list`/`atom_to_list` on internal atoms; no byte/codepoint or chardata handling occurs in this file.
-Axes examined: `build_name`/`to_erl_var` atom construction | Not examined: none
+**Encoding / unicode mishandling**\
+Reason: variable names are atoms composed via `integer_to_list`/`atom_to_list` on internal atoms; no byte/codepoint or chardata handling occurs in this file.\
+Axes examined: `build_name`/`to_erl_var` atom construction | Not examined: none\
 Basis: verified
 
-**Unclassified**
-Reason: no residual bug-shaped concern (composite, protocol-state, or file-specific) survived tracing.
-Axes examined: version-space collision (pos/neg), name-namespace collision, binding round-trip inverse | Not examined: none
+**Unclassified**\
+Reason: no residual bug-shaped concern (composite, protocol-state, or file-specific) survived tracing.\
+Axes examined: version-space collision (pos/neg), name-namespace collision, binding round-trip inverse | Not examined: none\
 Basis: verified
 
 ### Did I verify this?

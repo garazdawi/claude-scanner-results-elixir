@@ -17,7 +17,7 @@ Two defects in `EEx.Compiler`: a documented-valid `column: 0` turns any template
 - **Class** — Contract violation (crash where the contract promises `EEx.SyntaxError`)
 - **Issue** — The error-snippet arrow is built with `String.duplicate(" ", meta.column - 1)`. When `meta.column` is `0`, the count is `-1` and `:binary.copy(" ", -1)` raises `ArgumentError`. `meta.column` is `0` whenever the caller passes `column: 0`, which is a valid value: `EEx`'s published type is `@type column :: non_neg_integer` (eex.ex:112), so `0` conforms to the `@spec`, not violates it. Any malformed template then raises `ArgumentError` instead of the documented `EEx.SyntaxError`.
 - **Impact** — A caller using 0-based column indexing gets, for every template syntax error, a crash from deep inside `:binary.copy/2` that names nothing about the template problem — no file, line, or "unterminated tag" message. Reachable through `EEx.tokenize/2`, `EEx.compile_string/2`, `EEx.compile_file/2`, `EEx.eval_string/3`, etc., all of which forward `:column`. Template source is a documented public entry point.
-- **Evidence** — `verified`.
+- **Evidence** — `verified`.\
   `elixir -e 'EEx.tokenize("<% bad", column: 0)'` →
   ```
   ** (ArgumentError) errors were found at the given arguments:

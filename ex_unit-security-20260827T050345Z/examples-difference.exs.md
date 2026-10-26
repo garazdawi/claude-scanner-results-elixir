@@ -33,19 +33,19 @@ No findings
 
 ### Ruled out
 
-- **Diff-renderer crash on pathological terms** — Confidence: high (ruled out). The exotic values (`make_ref()`, `{}` vs `{true}`, improper list `[1 | "b"]`, reverse-ordered keyword lists, `%User{}` arity mismatch) are inputs to `ExUnit.Diff`/`ExUnit.Formatter`, but every one is a compile-time literal authored inside this file (lines 55–56, 68–72, 90–94, 122–123). There is no external-input channel in the file that could carry an attacker-chosen term to the renderer, so any renderer defect is not reachable *via this file*. Grounded in the full re-read, not in an assumption about the renderer.
+- **Diff-renderer crash on pathological terms** — Confidence: high (ruled out). The exotic values (`make_ref()`, `{}` vs `{true}`, improper list `[1 | "b"]`, reverse-ordered keyword lists, `%User{}` arity mismatch) are inputs to `ExUnit.Diff`/`ExUnit.Formatter`, but every one is a compile-time literal authored inside this file (lines 55–56, 68–72, 90–94, 122–123). There is no external-input channel in the file that could carry an attacker-chosen term to the renderer, so any renderer defect is not reachable *via this file*. Grounded in the full re-read, not in an assumption about the renderer.\
   Axes examined: presence of an external-input channel (function arg / file / network / env / untrusted message); origin of every term passed to `assert` (all inline literals). | Not examined: none — the only untried axis would be the renderer's own behaviour on hostile terms, which is not an axis of *this* file and cannot be reached through it; it belongs to a review of `ExUnit.Diff`/`ExUnit.Formatter`.
 
-- **Interpolation / template injection** — Confidence: high (ruled out). No `#{}` occurs anywhere; all strings (lines 31–32, 43–44) and charlists (lines 75–76) are literals, so no value reaches a downstream interpreter.
+- **Interpolation / template injection** — Confidence: high (ruled out). No `#{}` occurs anywhere; all strings (lines 31–32, 43–44) and charlists (lines 75–76) are literals, so no value reaches a downstream interpreter.\
   Axes examined: every string/charlist literal for interpolation syntax. | Not examined: none.
 
-- **Atom-table exhaustion** — Confidence: high (ruled out). No `String.to_atom`/`binary_to_atom`/`Module.concat`/`to_unsafe_atom`; every atom is a compile-time literal.
+- **Atom-table exhaustion** — Confidence: high (ruled out). No `String.to_atom`/`binary_to_atom`/`Module.concat`/`to_unsafe_atom`; every atom is a compile-time literal.\
   Axes examined: all atom-producing call sites. | Not examined: none.
 
-- **Resource consumption (message flood / large maps)** — Confidence: high (ruled out). The `send(self(), …)` loops (lines 168, 174, 180, 186) and `Enum` builders (lines 97–98) are bounded by fixed literal ranges (`1..2`, `1..11`, `1..15`, `5..10`), self-directed, and trivially small; none is attacker-influenced.
+- **Resource consumption (message flood / large maps)** — Confidence: high (ruled out). The `send(self(), …)` loops (lines 168, 174, 180, 186) and `Enum` builders (lines 97–98) are bounded by fixed literal ranges (`1..2`, `1..11`, `1..15`, `5..10`), self-directed, and trivially small; none is attacker-influenced.\
   Axes examined: every loop/builder bound (all literal ranges). | Not examined: none.
 
-- **Compile-time execution on the build machine** — Confidence: high (ruled out). At load time the script only calls `ExUnit.start(seed: 0)` (line 6) and defines literal-returning macros/tests; it reads no file and hits no network, and it is run manually by the developer who already trusts it, not pulled from a dependency or archive.
+- **Compile-time execution on the build machine** — Confidence: high (ruled out). At load time the script only calls `ExUnit.start(seed: 0)` (line 6) and defines literal-returning macros/tests; it reads no file and hits no network, and it is run manually by the developer who already trusts it, not pulled from a dependency or archive.\
   Axes examined: all load-time (module-body / macro) evaluation sites. | Not examined: none.
 
 ## Risks / caveats

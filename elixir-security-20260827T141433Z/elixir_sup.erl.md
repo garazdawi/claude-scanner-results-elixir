@@ -28,29 +28,29 @@ Every value in this file is a source-level literal. There is no `binary_to_term`
 
 ### Ruled out
 
-- **`supervisor:start_link/3` (line 10) — process/name registration & child startup (Shared mutable state / Code execution)**
-  Reason — all three arguments (`{local, elixir_sup}`, `elixir_sup`, `ok`) are compile-time literals; the registered name and the MFAs the supervisor will `apply` are fixed, with no input flowing from the sole caller `elixir:start/2` (which passes nothing).
-  Axes examined: argument origin (caller `elixir.erl:107` passes zero args), name value, MFA values, init-arg value | Not examined: none
+- **`supervisor:start_link/3` (line 10) — process/name registration & child startup (Shared mutable state / Code execution)**\
+  Reason — all three arguments (`{local, elixir_sup}`, `elixir_sup`, `ok`) are compile-time literals; the registered name and the MFAs the supervisor will `apply` are fixed, with no input flowing from the sole caller `elixir:start/2` (which passes nothing).\
+  Axes examined: argument origin (caller `elixir.erl:107` passes zero args), name value, MFA values, init-arg value | Not examined: none\
   Basis — verified
 
-- **`init/1` child specification (lines 12–35) — callable references the supervisor invokes (Code execution)**
-  Reason — the child spec is a literal; module names (`elixir_config`, `elixir_code_server`), functions (`start_link`), and args (`[]`) are constants, so no external value can redirect what is started or with what arguments.
-  Axes examined: module atom, function atom, arg list, restart/shutdown/type fields, all literal | Not examined: none
+- **`init/1` child specification (lines 12–35) — callable references the supervisor invokes (Code execution)**\
+  Reason — the child spec is a literal; module names (`elixir_config`, `elixir_code_server`), functions (`start_link`), and args (`[]`) are constants, so no external value can redirect what is started or with what arguments.\
+  Axes examined: module atom, function atom, arg list, restart/shutdown/type fields, all literal | Not examined: none\
   Basis — verified
 
-- **`init(ok)` clause head (line 12) — validation predicate / defensive guard**
-  Reason — not a defence against attacker input; the argument is the constant `ok` hardcoded at `start_link/0` line 10, so the clause is always reachable with the matching value and can never be driven by external data. It is not a dead defensive check either (it matches on every real invocation).
-  Axes examined: init-arg origin and value (constant `ok`) | Not examined: none
+- **`init(ok)` clause head (line 12) — validation predicate / defensive guard**\
+  Reason — not a defence against attacker input; the argument is the constant `ok` hardcoded at `start_link/0` line 10, so the clause is always reachable with the matching value and can never be driven by external data. It is not a dead defensive check either (it matches on every real invocation).\
+  Axes examined: init-arg origin and value (constant `ok`) | Not examined: none\
   Basis — verified
 
-- **Deserialisation / `binary_to_term` / atom-creation sinks**
-  Reason — none present; grep of the file shows no `binary_to_term`, `list_to_atom`, `binary_to_atom`, `file:consult`, or any decode path.
-  Axes examined: presence of each named unsafe call in the file body | Not examined: none
+- **Deserialisation / `binary_to_term` / atom-creation sinks**\
+  Reason — none present; grep of the file shows no `binary_to_term`, `list_to_atom`, `binary_to_atom`, `file:consult`, or any decode path.\
+  Axes examined: presence of each named unsafe call in the file body | Not examined: none\
   Basis — verified
 
-- **File / path / archive / network / crypto / NIF / ETS-match-spec sinks**
-  Reason — none present; the file performs no I/O, no filesystem or path construction, no outbound request, no cryptographic operation, no NIF load, and no ETS match specification. It only returns a term to the OTP framework.
-  Axes examined: full file read (36 lines), enumerated each sink class against the source | Not examined: none
+- **File / path / archive / network / crypto / NIF / ETS-match-spec sinks**\
+  Reason — none present; the file performs no I/O, no filesystem or path construction, no outbound request, no cryptographic operation, no NIF load, and no ETS match specification. It only returns a term to the OTP framework.\
+  Axes examined: full file read (36 lines), enumerated each sink class against the source | Not examined: none\
   Basis — verified
 
 ### Did I verify this?

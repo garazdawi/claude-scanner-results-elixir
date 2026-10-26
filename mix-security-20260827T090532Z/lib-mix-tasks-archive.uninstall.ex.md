@@ -30,7 +30,7 @@ No findings
 
 - **Hedge 1 (first pass): "did not exhaustively enumerate every programmatic `Mix.Task.run/2` caller."** RESOLVED. I grepped the entire `elixir` tree (case-insensitive) for `uninstall` and for `Archive.Uninstall`. The only invokers of `Mix.Tasks.Archive.Uninstall.run/1` are:
   - `test/mix/tasks/archive_test.exs:177,266,271,287,291` — all pass **literal** argv lists (`["archive-0.1.0", "--force"]`, `["archive"]`, etc.).
-  - `lib/mix/hex.ex:69` — a **doc string only** (`"...uninstalling it with \"mix archive.uninstall hex.ez\""`), not a call.
+  - `lib/mix/hex.ex:69` — a **doc string only** (`"...uninstalling it with \"mix archive.uninstall hex.ez\""`), not a call.\
   There is no internal caller anywhere in `lib/mix` that computes a `name` from dependency, archive, network, or project-file data and feeds it to this task. The argv source is exclusively the operator's shell command line. This is now verified by executed grep, not assumed.
 - **Hedge 2 (first pass): trusted the delegate's data flow without reading it.** RESOLVED. I read `installer.ex` in full and confirmed line-by-line: `uninstall/4` at 301, `List.first(argv)` at 304, `Path.join(root, name)` at 306-307, `File.rm_rf!(found)` at 314, `matching_package` glob at 333-335, `should_uninstall?`/`--force` at 337-339. All prior claims match the actual code (line numbers now cited precisely).
 - **Path.join traversal behaviour:** re-ran in the sandbox (`Path.join("/tmp/wctest/root", "../outside")` → `/tmp/wctest/root/../outside`, resolves outside root). Behaviour confirmed by execution; conclusion (out of scope, operator-only) unchanged.

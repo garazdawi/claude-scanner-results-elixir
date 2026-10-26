@@ -1,0 +1,118 @@
+## Folder threat model (standing context)
+
+```markdown
+# Threat model: `elixir/lib/elixir/src` (the Elixir compiler front-end)
+
+## Protocol / standard implemented
+This is the **Erlang-implemented core of the Elixir compiler**: the pipeline that turns Elixir source text into Erlang abstract format for the BEAM. No network/wire RFCs govern it. The relevant "standards" are internal contracts: the **Elixir language grammar** (`elixir_parser.yrl`, a yecc grammar), **Unicode** (UAX #31 identifier/annex handling, bidi/`?bidi` and line-break checks in `elixir_interpolation.erl`, UTF-8 via `unicode_util`), and Erlang abstract format / `erl_eval` semantics. The `URIConfig` block in `elixir.erl` seeds default ports (RFC 3986 schemes) into config but does no parsing here.
+
+Pipeline: `elixir_tokenizer` → `elixir_parser` (yrl) → `elixir_expand` (macro expansion) → `elixir_erl*` (translation to Erlang forms) → `elixir_erl_compiler`/`elixir_compiler`. Support modules: `elixir_aliases`, `elixir_import`, `elixir_dispatch`, `elixir_module`, `elixir_def`, `elixir_quote`, `elixir_map`, `elixir_bitstring`, `elixir_clauses`, `elixir_rewrite`, `elixir_errors`.
+
+**Public API entry points** (all documented as *private to the compiler*, but callable): `elixir:string_to_tokens/5`, `tokens_to_quoted/3`, `string_to_quoted/5`, `'string_to_quoted!'/5`, `eval_quoted/3,4`, `eval_forms/3,4`, `env_for_eval/1`, `quoted_to_erl/2`. `elixir:start/2` is the OTP application callback; `start_cli/0`/`start/0` boot the CLI/IEx.
+
+## Trust / contract boundaries
+- **Source text is the primary untrusted input.** `String` reaching `string_to_tokens`/`string_to_quoted` is attacker-controlled when a tool compiles or parses code from an untrusted source (formatters, language servers, `Code.string_to_quoted/2` on user data, doc/markdown tooling). The tokenizer must treat every byte as hostile: unterminated strings, malformed UTF-8, bidi/line-break injection, huge/deeply-nested input, adversarial `\u{...}`/`\xHH` escapes (`elixir_interpolation.erl`).
+- **`eval_*`/`quoted_to_erl` execute code.** Callers are contractually responsible for only evaluating trusted quoted forms — these functions *run* arbitrary code (`erl_eval:expr`). They are not a sandbox; treating a quoted AST from an untrusted source as safe to `eval_forms` is a caller bug, not defended here.
+- **`env_for_eval/1` contract**: expects a `Macro.Env` struct with `map_size == 15` or an opts list; a caller passing a hand-built env violates the implicit shape contract.
+- **Operator/config-controlled**: `elixir_config` table entries (compiler options: `tracers`, `parser_options`, `on_undefined_variable`, `erlc_options`). `Opts` proplists (`literal_encoder`, `columns`, `token_metadata`) are caller-set, stored in the **process dictionary** (`put(elixir_parser_warnings...)` etc.) — parsing is single-process, non-reentrant across those keys.
+
+## Attacker model
+The realistic attacker is **a supplier of untrusted Elixir source or an untrusted quoted AST** to a host process that parses/compiles it. In scope: DoS of the compiling process (crash, unbounded CPU/memory, atom-table exhaustion), and confusing diagnostics. Explicitly **out of scope**: sandboxing evaluation — `eval_*` is documented to run code; and defending against a malicious *operator* who already controls compiler config/tracers (they already have code execution). A co-tenant BEAM process is not a boundary the compiler defends. Note the header on `elixir.erl`: these are "private to the Elixir compiler."
+
+## Common attack patterns for this code family
+Recognise these when reviewing a specific path:
+- **Atom exhaustion** — `list_to_atom`/`binary_to_atom` on peer-derived text (compiler module names in `elixir_code_server:compiler_module/1` are bounded; watch tokenizer/aliases paths that atomise identifiers).
+- **Unbounded recursion / stack blowup** — deeply nested delimiters, interpolation nesting (`extract/8` recurses into `elixir_tokenizer:tokenize` per `#{...}`), quoted-tree walks in `elixir_quote`/`elixir_expand`.
+- **Quadratic blowup** — repeated `<<Acc/binary, ...>>` or list-reverse patterns on large input (unescape loops, tokenizer buffers).
+- **Bidi / homoglyph / line-break injection** (CVE-2021-42574 "Trojan Source") — explicitly guarded in `extract_char` via `?bidi`/`?break`; verify no path bypasses it (raw `unescape_*`, sigils with `Interpol=false`).
+- **Escape-sequence edge cases** — `\u{}`/`\x` truncation, reserved/invalid codepoints (`append_codepoint` catches `badarg`), integer overflow via `list_to_integer/2`.
+- **Macro-expansion / hygiene escape** — `elixir_quote` var counters and `elixir_expand` context; unhygienic capture is a correctness/security concern for generated code.
+- **Process-dictionary leakage across nested eval** — `elixir.erl` carefully saves/restores `?elixir_eval_env` and `dbg_callback`; a missing restore leaks env between evals.
+
+## Supervisor / process structure
+`elixir_sup` (`one_for_one`, 3 restarts / 10s) supervises exactly two **permanent workers**, both singletons:
+- **`elixir_config`** — holds the compiler config ETS/table (options above). Crash loses global compiler config.
+- **`elixir_code_server`** (`gen_server`) — serialises module definition (`defmodule`/`undefmodule`, monitors compiling PIDs via `'DOWN'`), the `required`-files acquire/release queue, and the compiler-module pool. A crash here aborts all in-flight compilation and drops queued `acquire` waiters. Note `handle_call`/`handle_cast` deliberately `{stop, {badcall/badcast, ...}}` on unknown messages — an unexpected message **takes the server down** (and with it, siblings' compilation state). Actual tokenizing/parsing/expansion runs in the **caller's process**, not under this supervisor — a parse crash kills only the caller.
+
+## Cross-file invariants
+- **`elixir_tokenizer` is the sole sanitiser of raw bytes.** `elixir_parser`, `elixir_expand`, and `elixir_erl*` assume tokens are well-formed (valid UTF-8, bidi/break already rejected). A sink in the parser that looks unguarded is usually guarded because the tokenizer refused the input first — but only for the *default* tokenize path; `elixir_interpolation:unescape_string/1` and sigils with `Interpol=false` re-enter unescaping **without** the `?bidi/?break` gate.
+- **`elixir_interpolation:extract/8` re-enters `elixir_tokenizer:tokenize/4`** for each `#{...}`; nesting depth = source-controlled recursion depth across both files.
+- **Parser state lives in the process dictionary** (`elixir_parser_warnings/columns`, `elixir_token_metadata`, `elixir_literal_encoder`), set by `put_parsing_state` and erased in `tokens_to_quoted`'s `after`. Any file reading these keys assumes a `tokens_to_quoted` call set them; concurrent parsing in one process would corrupt them.
+- **`env_for_eval` normalises the env** (validates PID liveness, strips tracers for dead lexical_tracker) before `eval_forms`/`quoted_to_erl` translate — downstream translation assumes a live-or-nil `lexical_tracker`.
+- **`elixir_code_server` is the single writer of the `elixir_modules` ETS table**; `defmodule` rejects duplicates (`[CurrentTuple] -> {error, ...}`), so other files may assume module-name uniqueness is enforced centrally, not per-caller.
+```
+
+---
+
+## Standards obligations (check each sub-claim against this file)
+
+<!-- rfc-governed: yes -->
+<!-- standards: Unicode UAX #31; Unicode UTS #39; Unicode UTS #55; Unicode UAX #24; Unicode UAX #15; Unicode UAX #9 -->
+
+# Security-obligation checklist — `elixir/lib/elixir/src`
+
+This folder is the **Elixir compiler front-end written in Erlang**: tokenizer, interpolation/escape handling, parser (`elixir_parser.yrl`), macro expander, and BEAM code generation. Most of it is OTP-/language-internal, but the **tokenizer and interpolation modules implement Unicode source-text handling** — identifier syntax, identifier security (mixed-script/confusables), NFC normalization requirements, unsupported-newline handling, bidirectional-control rejection (Trojan Source), and Unicode escape validation. Those are governed by external Unicode standards with normative, security-bearing clauses that a single-file reviewer could not derive from the code alone, so the RFC/compliance verdict is `yes`.
+
+The heavy identifier-security *tables and algorithms* (`String.Tokenizer`, `String.Tokenizer.Security`, driven by the Unicode Character Database) live in the sibling `lib/elixir/unicode/` directory, **not** in this folder; this folder is the caller/enforcer. Sub-claims below are scoped to what this folder itself owns and enforces.
+
+## Applicable standards / contracts
+
+### External standards (compliance pass adjudicates ONLY these)
+- **Unicode UAX #31 — Identifier and Pattern Syntax** — constrains which codepoints may start/continue an unquoted identifier and requires normalization; enforced here via `tokenize_identifier` delegating to `identifier_tokenizer` and rejecting non-conforming forms.
+- **Unicode UTS #39 — Unicode Security Mechanisms** — mixed-script/confusable identifier detection and the confusable "skeleton" algorithm; this folder consumes `{error,{mixed_script,…}}` and `confusable_skeleton/1` to reject/suggest.
+- **Unicode UTS #55 — Unicode Source Code Handling** — explicitly cited in `elixir_tokenizer.hrl:38`; governs which whitespace/newline codepoints a compiler must treat as line breaks and the NFC requirement for identifiers.
+- **Unicode UAX #24 — Script Property** — the Script values underlying the mixed-script check.
+- **Unicode UAX #15 — Normalization Forms (NFC/NFKC)** — identifiers must be in NFC; `suggest_simpler_unexpected_token_in_error` uses `unicode:characters_to_nfkc_list/1` and NFC messaging.
+- **Unicode UAX #9 — Bidirectional Algorithm / Trojan Source (CVE-2021-42574)** — the `?bidi/1` control-codepoint set in `elixir_tokenizer.hrl:27-35` (sourced from trojansource.codes) that must be rejected in source text.
+
+### Mechanically-cited standards that do NOT govern this folder
+- **RFC 3986 (URI, 13×)** — Elixir `URI` module (`lib/elixir/lib/uri.ex`), not the compiler src.
+- **RFC 3339 (1×)** — `Calendar`/`DateTime`, not this folder.
+- **RFC 4648 (1×)** — `Base` module, not this folder.
+- **RFC 8259 (1×)** — `JSON` module, not this folder.
+- **UTS #18 (1×)** — `Regex` module, not this folder.
+- **UAX #44 + UCD data files** — define the format of `unicode/*.txt`, consumed by the `unicode/` generator that produces `String.Tokenizer*`; not implemented in this src folder (it is the downstream *caller*).
+
+### OTP-internal contracts (per-file context, NOT compliance obligations)
+- `-spec` return shapes across `elixir_errors.erl`, `elixir_erl.erl`, etc. (e.g. `no_return()` on `compile_error`/`erl_warn`) — internal contracts only.
+- Tokenizer return tuples `{Kind,Acc,Rest,Length,Ascii,Special}` and the `#elixir_tokenizer{}` record — internal to the tokenize protocol, not external.
+- `elixir_sup`/`elixir_code_server` OTP supervision/gen_server conventions.
+
+## Checkable sub-claims
+
+1. **BIDI_CONTROL_REJECTED** — The nine bidirectional formatting controls (LRE 202A, RLE 202B, LRO 202D, RLO 202E, LRI 2066, RLI 2067, FSI 2068, PDF 202C, PDI 2069) must be rejected in source text (identifiers, strings, comments), not silently passed through. (`?bidi/1`, UAX #9 / Trojan Source; `elixir_tokenizer.hrl:27`, `elixir_tokenizer.erl:1357`.)
+2. **UNSUPPORTED_NEWLINES_REJECTED** — VT (000B), FF (000C), bare CR (000D not followed by LF), NEL (0085), LS (2028), PS (2029) must be handled/rejected per the `?break` set, and CRLF must be handled explicitly before `?break`. (UTS #55; `elixir_tokenizer.hrl:41`.)
+3. **IDENTIFIER_NFC_REQUIRED** — Unquoted Unicode atoms/variables/calls must be in NFC form; a non-NFC identifier must error (with an NFC suggestion), not be accepted or auto-normalized silently. (UTS #55 / UAX #15; `elixir_tokenizer.erl:1462`.)
+4. **MIXED_SCRIPT_REJECTED** — Mixed-script confusable identifiers must be rejected (the `{error,{mixed_script,…}}` path must lead to a compile error, never fall through to acceptance). (UTS #39 §5; `elixir_tokenizer.erl:1414`.)
+5. **RESTRICTED_CODEPOINTS_ONLY** — Only allowed ID_Start/ID_Continue codepoints may form identifiers; unexpected codepoints must produce `unexpected_token`, not be tokenized. (UAX #31 / UTS #39; `elixir_tokenizer.erl:1426`.)
+6. **ALIAS_ASCII_ONLY** — Module aliases must be restricted to ASCII letters without punctuation; non-ASCII/`Special` aliases must error. (Elixir alias rule atop UAX #31; `elixir_tokenizer.erl:1485-1489`.)
+7. **UNICODE_ESCAPE_SCALAR_ONLY** — `\uHHHH` / `\u{H*}` escapes that decode to surrogates (D800–DFFF) or beyond U+10FFFF must be rejected ("invalid or reserved Unicode code point"), not encoded. (Unicode scalar-value rule; `elixir_interpolation.erl:254-261`.)
+8. **UNICODE_ESCAPE_WELLFORMED** — Malformed `\u`/`\x` escapes must throw a descriptive error rather than partial/undefined decoding. (`elixir_interpolation.erl:225,251`.)
+9. **CONFUSABLE_SKELETON_SUGGESTION** — When a token fails, the confusable-skeleton (UTS #39) and NFKC forms are used only to *suggest* a safe alternative — the original confusable/non-NFC token must still be rejected, not accepted because a skeleton matched. (`elixir_tokenizer.erl:1444-1467`.)
+10. **BIDI_COMMENT_NO_BYPASS** — Bidi rejection in comments must not be bypassable by comment context; a bidi char in a comment must error like elsewhere. (`elixir_tokenizer.erl:1357`.)
+11. **UTF8_DECODE_ERRORS_SURFACED** — Invalid UTF-8 in source/IO conversion must raise a conversion error, not yield replacement/garbage silently. (`elixir_utils.erl:139-155`, `unicode:characters_to_*`.)
+12. **GRAPHEME_CLUSTER_SEGMENTATION** — Character advancement in interpolation uses `unicode_util:gc/1` (grapheme clusters), so column/position accounting stays consistent with Unicode text segmentation. (`elixir_interpolation.erl:94`.)
+
+## Per-file checking instructions
+
+For each sub-claim that could plausibly apply to the file under review, search for the code that satisfies it. The high-value files are `elixir_tokenizer.erl`, `elixir_tokenizer.hrl`, `elixir_interpolation.erl`, and `elixir_utils.erl`; most other files in this folder (parser, expander, code-gen, config, supervision) will not touch these Unicode obligations — say so briefly rather than forcing a match. If a file declares the check or default that satisfies a claim (e.g. the `?bidi`/`?break` macros, a `mixed_script`/`unexpected_token` rejection branch, an NFC/scalar-value guard), name the specific clause and treat the claim as satisfied. If a Unicode-handling code path exists where you would expect one of these checks to be enforced but the satisfying code is absent or the error branch falls through to acceptance, report it as a gap under the appropriate failure-mode class (identifier-security bypass, Trojan-Source/bidi injection, malformed-escape/UTF-8 handling). Do **not** raise findings from the OTP-internal contracts section — those are per-file context only.
+
+---
+
+## RFC compliance clauses (MUST / MUST-NOT level) — check each that applies to THIS file
+
+For every clause below that could plausibly apply to the file under review, confirm the code satisfies it or report a gap as a finding.
+
+1. IDENT_XID_SYNTAX — Unquoted identifiers/atoms/calls are restricted to the default identifier syntax (Start = XID_Start, Continue = XID_Continue) via the delegated identifier_tokenizer, rejecting anything outside it. (cites: Unicode UAX #31 §2, R1-1) (quote: "setting Start and Continue to the properties XID_Start and XID_Continue, respectively") [SHALL]
+2. IDENT_NFC_FORM — Unquoted identifiers, atoms, variables and calls must be in (and are tested/compared against) canonical composition NFC form, both when producing the atom and when testing/rejecting the source token; non-NFC input is rejected with an NFC/NFKC suggestion. (cites: Unicode UAX #31 §5, R6/R4; Unicode UTS #39 §3.1.1.1; Unicode UTS #55 §3.1.1; Unicode UAX #15 §4) (quote: "Allowed identifiers must be in the specified Normalization Form.") [MUST]
+3. IDENT_MIXED_SCRIPT_REJECT — Identifiers mixing scripts in a confusable way are hard-rejected (mixed_script error / diagnosed confusing chunks) via a restriction level requiring characters to stay within the identifier profile / single resolved script, per the spoofing mechanisms UAX #31 defers to UTS #39. (cites: Unicode UAX #31 §5; Unicode UTS #39 §5.2; Unicode UTS #55 §5.1.2.2) (quote: "Where spoofing concerns are relevant, the mechanisms described in Unicode Technical Standard #39 should be used.") [MUST]
+4. IDENTIFIER_PROFILE_ALLOWED_ONLY — Identifiers must be restricted to Allowed characters; codepoints with Identifier_Status=Restricted are rejected during tokenization. (cites: Unicode UTS #39 §3.1) (quote: "does not permit any characters in \p{Identifier_Status=Restricted}, unless it documents the additional characters") [SHALL]
+5. ALIAS_ASCII_ONLY — Module aliases must satisfy the ASCII-Only restriction level, permitting only ASCII characters without punctuation. (cites: Unicode UTS #39 §5.2) (quote: "characters in the string must also be in the identifier profile") [MUST]
+6. SCRIPT_SINGLE_VALUE — Every code point is assigned exactly one Script property value, so identifier/script logic may treat sc as a total function. (cites: Unicode UAX #24 §2.1) (quote: "every Unicode code point is assigned a single Script property value") [SHALL]
+7. SCX_NONEMPTY_SET — Each code point's Script_Extensions is exactly one non-empty set; unassigned, private-use, and noncharacter code points resolve to { Unknown }, never the empty set. (cites: Unicode UAX #24 §3.1) (quote: "The empty set is not allowed; the scx value for unassigned, private use, and non-character code points is the set { Unknown }") [MUST]
+8. SCX_CONTAINS_EXPLICIT_SC — When a code point's Script value is explicit, that value must also be an element of its Script_Extensions set. (cites: Unicode UAX #24 §3.1) (quote: "then that value must be an element of the scx set for that code point as well") [MUST]
+9. NORMALIZATION_TRANSFORM_CONFORMANT — the normalization transforms the tokenizer relies on (NFC for identifier canonicalization, `characters_to_nfkc_list` for the compatibility-form suggestion) must be conformant transforms reproducing NormalizationTest.txt results. (cites: Unicode UAX #15 §4) (quote: "must be able to produce the results of the conformance test specified in the NormalizationTest.txt data file") [MUST]
+10. BIDI_FORMATTING_CHARS_REORDER_DISPLAY — The explicit directional formatting characters (embeddings LRE/RLE U+202A/B, overrides LRO/RLO U+202D/E, isolates LRI/RLI/FSI U+2066/7/8, and their pops PDF U+202C / PDI U+2069) reorder the displayed order of the surrounding characters under the algorithm, so a process handling such source text must recognize and account for them rather than treat their code-point order as their visual order. (cites: Unicode UAX #9 §Conformance/C1) (quote: "shall display all visible representations of characters") [SHALL]
+
+---
+

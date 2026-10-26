@@ -1,0 +1,65 @@
+# /Users/lukas/code/claude-scanner/elixir/lib/elixir/lib/registry.ex
+<!-- sha256: 61311893cdea9ecc5f4b9806ba6ec9c0293608aad817faddaf69742d88124afa -->
+<!-- tree: 3389f8405 2026-08-25 -->
+
+# /Users/lukas/code/claude-scanner/elixir/lib/elixir/lib/registry.ex
+<!-- sha256: 61311893cdea9ecc5f4b9806ba6ec9c0293608aad817faddaf69742d88124afa -->
+<!-- tree: 3389f8405 2026-08-25 -->
+
+_Re-reviewed on 2026-08-28T12:31:13Z (Erlang/OTP 29, Elixir 1.21.0-dev)_
+
+## Summary
+
+`Registry` handles keys/values as opaque BEAM terms via ETS and `phash2`, with no code-eval, atom-creation-from-strings, deserialization, path, or network sinks. The one verified defect is an availability issue in `Registry.lock/3`, where waiting callers crash after 5 s instead of blocking. In this re-review the only outstanding first-pass hedge ("tested `:unique`, single partition… not fuzzed" for the lock finding) was cleared by executing all four `kind × partitions` combinations; the finding is retained at the same severity/confidence with the assumption removed. The one remaining `Not examined` axis (crafted internal `:EXIT`/`:unlock`/monitor messages sent directly to the partition GenServer) is stated honestly and kept `asserted`, as it presupposes an already-co-located BEAM process, which the threat model excludes as a boundary.
+
+## Security
+
+#### `CSCAN-registry-lock-call-timeout`
+- **Finding ID:** `CSCAN-registry-lock-call-timeout`
+- **Severity:** Low
+- **Confidence:** high
+- **Location:** `registry.ex:1854` (`Registry.Partition.lock/3`), reached from the public `Registry.lock/3` at `registry.ex:755-760`
+- **Class:** Concurrency (lock lifetime / availability-DoS)
+- **Issue:** `Registry.Partition.lock/3` acquires the lock with `ref = GenServer.call(pid, {:lock, key})` — the 2-arity form, whose default timeout is 5000 ms. The server side is deliberately written to hold the reply for an *unbounded* time: `handle_call({:lock, key}, from, ...)` (`registry.ex:1924-1936`) enqueues `from` and returns `{:noreply, ...}`, replying (via `go/2` → `GenServer.reply`, `registry.ex:1998-2001`) only when the lock is finally released. The client's fixed 5 s cap contradicts that design: any caller that has to wait more than 5 seconds for the lock does not keep waiting — it exits.
+- **Impact / threat:** If a process holds a lock (`Registry.lock/3`) while doing work that runs longer than 5 s — legitimately slow I/O, a loaded scheduler, or a critical section whose duration is influenced by attacker-supplied input — then *every* other process contending for the same `lock_key` crashes with `{:timeout, {GenServer, :call, [pid, {:lock, key}, 5000]}}` rather than queuing. For per-resource / per-key locks this converts "one slow holder" into "all waiters on that key die," and if those waiters are supervised (GenServers, request handlers) the exits become restart/retry storms while contention persists. The trust boundary is availability: an input that can push a single lock-holder's critical section past 5 s becomes a DoS amplifier against all concurrent users of that key. The lock itself is *not* corrupted — `dequeue/2` (`registry.ex:1983-1996`) skips the dead waiter via `Process.alive?`, so a fresh caller can acquire it once the holder releases; the damage is confined to the crashed waiters.
+- **Evidence:** `verified` (executed).
+  - **Cross-combination fuzz (clears the first-pass "tested `:unique`, single partition" hedge):** a holder grabbing `Registry.lock(name, :k, …)` and sleeping 7 s, with a second contending `Registry.lock(name, :k, fn -> :ok end)`, was run against every `kind × partitions` combination. All four crashed the waiter at ~5 s:
+    - `{:unique, 1}`: waiter after 5004ms → `{:crash, :exit, {:timeout, {GenServer, :call, [pid, {:lock, :k}, 5000]}}}`
+    - `{:unique, 4}`: waiter after 5008ms → same timeout exit
+    - `{:duplicate, 1}`: waiter after 5003ms → same timeout exit
+    - `{:duplicate, 4}`: waiter after 5007ms → same timeout exit
+    This is expected from the code — the partition `handle_call({:lock, key}, …)` path is identical regardless of `kind`/`partitions`; the only variation is which partition server pid is targeted — and the execution confirms it. The timeout is data-independent (purely the 5000 ms `GenServer.call` default).
+  - **Self-heal (retained from first pass):** after the holder released, a new `Registry.lock(R, :k, ...)` acquired the lock, confirming the lock is not left stuck (impact = crashed waiters only), consistent with the `Process.alive?` skip in `dequeue/2`.
+- **Suggested fix:** Call the lock with an infinite timeout, matching the server's unbounded-defer design: `GenServer.call(pid, {:lock, key}, :infinity)` in `Registry.Partition.lock/3`. If a bounded wait is ever desired it should be an explicit, documented option on `Registry.lock/4`, and time out cleanly rather than by crashing the caller.
+
+### Ruled out
+
+- **Match-spec special-atom key injection (`exact_match_key?/1`, `match_spec/4`, `lookup_second/3`, `__unregister__/4`).** This is the file's central security defense: a `key` containing ETS match-spec atoms (`:_`, `:"$1"`, `:"$_"`) must not be embedded raw into a match head where ETS would treat it as a wildcard/variable and thereby read or delete *other* keys' entries. `exact_match_key?/1` recursively inspects tuples/lists/maps and routes any special-atom-bearing key to the `{:const, key}` guard path. **Verified safe (executed):** in a `{:duplicate, :key}` registry, `lookup`/`match`/`unregister`/`unregister_match` with keys `:"$1"`, `:_`, `:"$_"`, `{:"$1", :_}` all returned `[]` / deleted nothing against a distinct registered key, and registering *under* `:"$1"`/`:_` round-tripped in isolation (`keys/2` and `lookup/2` showed no cross-key bleed).
+  - Axes examined: key-position special atoms (`:_`, `:"$1"`, `:"$_"`), nested-in-tuple special atoms, both `lookup`/`match` (read) and `unregister`/`unregister_match` (delete) sinks, `{:duplicate, :key}` kind | Not examined: none.
+- **Cross-process `unregister`/`unregister_match` scoping.** A caller-supplied `pattern`/`guards` could in principle be crafted to delete another process's rows. Not reachable: the match head fixes the pid position to the literal `self()` (`{key, {self, pattern}}` / composite-key `{{key, self, :_}, pattern}`), and caller guards are ANDed after mandatory self/key guards, so they can only narrow the match, never broaden it. **Verified (executed):** part of the special-atom test above — a wildcard `pattern`/key deleted none of another key's entries.
+  - Axes examined: wildcard `pattern`, special-atom `key`, delete-other-pid attempt via composite key | Not examined: none.
+- **`apply(module, function, [entries | args])` in `apply_non_empty_to_mfa_or_fun/2` (line 632).** The MFA is the caller's own `dispatcher` argument to `dispatch/3,4` (documented `{module(), atom(), [term()]}` type), not derived from registered values or any external term — the registered values are passed *as data* to that callback. The caller choosing what code to run in its own dispatch is the documented contract, not a boundary crossing.
+  - Axes examined: provenance of the MFA (caller argument vs registered data) | Not examined: none (no untrusted-term axis reaches the module/function positions; the list argument is data, not code).
+- **Atom creation via `Module.concat/2` in `Registry.Partition.key_name/2` / `pid_name/2` (lines 1830, 1838).** Atoms are minted only at supervisor init, once per partition, for `i` in `0..(partitions-1)`; `partitions` is validated as a positive integer registry-creation option (`registry.ex:421-426`), i.e. operator config, not attacker-controlled runtime input. Bounded and not reachable from a data boundary.
+  - Axes examined: source of the concatenated integer (init-time loop bound vs runtime input), validation of `partitions` | Not examined: none.
+- **`put_meta`/`meta`/`delete_meta` clobbering internal routing.** Any local process can write to the shared registry table, but the internal routing/info entries use integer keys (`-1`, `-2`, and partition indices `0..n-1`), while all three metadata functions guard on `is_atom(key) or is_tuple(key)`. **Verified (executed):** `put_meta(R, -1|-2|0|1, :evil)` each returned `{:error, :function_clause}` and the registry kept routing correctly, so metadata operations cannot overwrite partition routing or the `@all_info`/`@key_info` records.
+  - Axes examined: integer keys at exactly the reserved indices (`-1`, `-2`, `0`, `1`), guard on non-atom/non-tuple key types | Not examined: none.
+- **Crafted internal partition messages (`{:EXIT, pid, _}`, `{:unlock, key, ref}`, `{{:unlock, key}, ref, :process, …}`, monitor `:DOWN`/tag messages) to `Registry.Partition`.** The `handle_info` clauses (`registry.ex:1938-1969`) trust the shapes of these messages and act on the lock map / pid ETS directly; a forged `:unlock` could in principle release a lock out of turn, and a forged `:EXIT` could trigger `__unregister__` for an arbitrary pid. **Not treated as a finding:** sending these requires the ability to `send/2` to the internal partition PID (obtained via `Process.whereis`/table read) from a co-located BEAM process — which per the standing threat model ("a co-tenant BEAM process is not a boundary the compiler/library defends") already has equivalent capability. Reasoned about from the code; the disagreement-producing inputs were not driven through the live server.
+  - Axes examined: message-shape trust in `handle_info` (read only) | **Not examined: forged `:unlock`/`:EXIT`/monitor messages actually sent to a running partition GenServer** (would need executed injection against a live server to see whether a lock is wrongly released or another pid's rows are unregistered). This entry remains `asserted`.
+
+## Risks / caveats
+
+- **Severity framing of the lock finding.** It is a genuine, executed-and-verified defect reachable through the documented `Registry.lock/3`, confirmed across all `kind × partitions` combinations. Its exploitability as *security* (versus plain robustness) depends on application usage — specifically whether an attacker can push a lock-holder's critical section past 5 s while others contend on the same key. Where locks are used only for guaranteed-sub-second sections it is a latent footgun; where hold time tracks external I/O or input size it is a real DoS amplifier. Rated Low to avoid overstating the data-independent (timing-based) trigger; defensibly Medium in lock-heavy request paths.
+- **Caller-supplied match specs (`select/2`, `count_select/2`, `match/4`, `count_match/4`).** These accept full ETS match specs/patterns from the caller. ETS match specs cannot execute arbitrary code, and cost is borne by the calling process, so expensive-pattern DoS is caller-self-inflicted rather than a library defect. An application that forwards *untrusted* match specs/patterns straight into these functions could let a peer drive an expensive full-table scan; that is an application-layer exposure, not a flaw in this file.
+- **Shared-namespace metadata and dispatch.** `put_meta` lets any co-located process overwrite another component's metadata keys (subject to the `is_atom/is_tuple` guard), and `dispatch` exposes values registered by other processes to the caller's callback. Both are documented, by-design properties of a VM-local shared registry among mutually-trusted processes; consistent with the "co-tenant BEAM process is not a boundary" model, they are not treated as findings.
+
+## Did I verify this?
+
+- **Lock timeout finding — verified by execution.** Ran a holder/waiter harness against `{:unique,1}`, `{:unique,4}`, `{:duplicate,1}`, `{:duplicate,4}`; every waiter exited at ~5 s with the `{:timeout, {GenServer, :call, [pid, {:lock, :k}, 5000]}}` reason, and a subsequent lock acquired cleanly (self-heal). This clears the first-pass "tested `:unique`, single partition… not fuzzed" hedge — the assumption is removed and replaced with executed evidence spanning both kinds and single/multi-partition.
+- **Match-spec / special-atom, cross-process scoping, metadata-clobber ruled-outs — verified by execution** (round-trip and rejection tests as described; `Not examined: none`).
+- **`apply` MFA and `Module.concat` atom minting — verified by code provenance;** no untrusted-term axis reaches those sinks, so there is no axis to drive (`Not examined: none`).
+- **Crafted internal partition messages — NOT verified by execution.** Kept `asserted` with the forged-message axis explicitly on `Not examined`; it is excluded by the threat model (already-co-located process), not cleared by a run. Reading the `handle_info` clauses tells me what they do, not which forged inputs would make them misbehave, so per the re-review rule this entry is not upgraded and not downgraded to "verified."
+
+### Dropped in re-review
+
+None. All first-pass findings and ruled-outs are retained; the lock finding's first-pass hedge was upgraded to executed evidence (assumption removed) rather than dropped, and no prior finding was removed.

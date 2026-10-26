@@ -1,0 +1,89 @@
+## Folder threat model (standing context)
+
+# Correctness / Bug Profile — `iex` (Interactive Elixir REPL)
+
+## Protocol / standard implemented
+This is **IEx**, Elixir's interactive shell (source is `.ex`, not `.erl`). It is not a network protocol implementation; it is a REPL layered on the Erlang/OTP shell infrastructure. Governing specs are informal: the **Erlang `:io` protocol** (`{:io_request, from, ref, {:get_until, …}}` / `{:io_reply, …}`, see `server.ex:384-414`), OTP **`user_drv`/`:shell`/group-leader** conventions (`broker.ex:22-31`), **distributed Erlang** (`:erpc.call`, `Node.list()` in `broker.ex:167-173`), and **`:proc_lib`** process startup. Documented public entry points: `IEx` (`iex.ex` — `pry/0-1`, `configure/1`, `break!/2`, `started?/0`, color/inspect helpers), `IEx.Helpers` (the huge user-facing helper set — `h`, `r`, `c`, `i`, `open`, `recompile`, `ls`, etc.), `IEx.Pry` (`pry/2`, `break/4`, `breaks/0`, `remove_breaks/0`), `IEx.Server.run/1`, `IEx.Broker`, and `IEx.Config`.
+
+## Trust / contract boundaries
+IEx's dominant trust model is a **fully-trusted local user**: code typed at the prompt is `eval`'d with full VM privileges, so "arbitrary code execution" is the feature, not a vuln. The interesting boundaries are the *non-prompt* ones:
+- **`.iex.exs` file** (`evaluator.ex:280-318`): read from cwd, `$IEX_HOME`, or `System.user_home()` and *evaluated*. A malicious file dropped in a directory you `iex` from runs code. Contract: path is operator-supplied; content is untrusted-if-cwd-is-untrusted.
+- **Distributed / remote shell** (`--remsh`, `broker.ex:167-173`, `IEx.Autocomplete.remsh`): `:erpc.call` to peer nodes and takeover requests cross a **node boundary**. A connected node is only as trusted as the Erlang cookie. `Broker.servers/1` monitors remote shell pids each call.
+- **Takeover / pry protocol** (`server.ex:76`, `217-243`, `broker.ex`): `{:take_over, pid, ref, location, whereami, opts}` messages carry peer-controlled `location`/`whereami` strings that are printed; `opts[:evaluator]` steers dispatch.
+- **Autocomplete input** (`autocomplete.ex`): parses partial, possibly-malformed expression fragments from the line editor — the one place arbitrary *unevaluated* text is structurally decoded.
+- **`IEx.Config`** (`config.ex`): operator config via `configure/1`, validated in `validate_option/1`. Note validation covers only the documented keys; `merge_option`/`update_configuration` write straight into `Application` env.
+
+## Failure-mode model
+Because almost everything eventually crashes into a supervised restart, the salient bugs are **not** crash-on-input but:
+- **State-threading errors** in `IEx.Server`'s hand-rolled loop (`loop`/`wait_input`/`wait_eval`/`wait_common`/`handle_common`): the `%IEx.Server{}` struct, `counter`, and `parser_state` are threaded manually across many receive clauses. Passing a stale `state`, dropping a `bump_counter`, or resetting `parser_state` on the wrong branch produces a silently wrong prompt counter, lost continuation buffer, or mis-routed takeover.
+- **Dispatch fall-through**: `handle_common/6` ends in a catch-all `callback.(state)` (`server.ex:312`); a message shape that should be handled but is matched by the catch-all is silently re-looped. Likewise `evaluator.ex:207` `loop/1` only matches tagged `^server`/`^ref` messages — an untagged message stays in the mailbox forever.
+- **Monitor/ref leaks**: `Broker.servers/1` calls `Process.monitor` on every shell pid on *every* takeover with no matching demonitor; takeover bookkeeping in `state.takeovers` must be pruned on both `:refuse` and `:DOWN` (`broker.ex:143-165`) — a missed prune leaks a pending `from` that never gets `GenServer.reply`, hanging the caller (`take_over/3` calls with `:infinity`).
+- **Accumulator/edge-case drops** in `IEx.History` pruning (`history.ex:90-106`) and `has_bin` recursion.
+- **Parser state corruption** in `IEx.Evaluator.parse/3` (`evaluator.ex:70-148`): `adjust_operator` prepends `v(-1)` tokens for pipe-continuation; wrong `last_op` (`:match` vs `:other`) threading changes semantics silently.
+
+## Common bug patterns for this family (REPL/stdlib)
+Guard operator-precedence and `andalso`/`orelse` typos; `0`/`O` and `l`/`1` confusions in helper parsing; off-by-one in the eval `counter` and in `History.nth/2`'s positive/negative index guards (`history.ex:46-64`); a helper returning a tuple shape the docstring doesn't promise; `case`/`cond` clause omitted after a refactor so a legal message hits the fallthrough; `try/catch` in `Evaluator` swallowing an error and returning stale `state`.
+
+## Supervisor / process structure
+`IEx.App` starts `IEx.Supervisor` (`:one_for_one`) over three children: **`IEx.Config`** (an `Agent` owning a public ETS table `IEx.Config` holding `after_spawn` hooks), **`IEx.Broker`** (`GenServer`, registry of servers + pending takeovers), **`IEx.Pry`** (`GenServer`, ETS-backed breakpoint table + counter). `IEx.MixListener` (`GenServer`) purges recompiled modules. `IEx.Server` and `IEx.Evaluator` are **unsupervised** `:proc_lib`/spawned processes linked to the group leader; the server `trap_exit`s and manually resurrects a dead evaluator (`server.ex:291-310`). Crashing `Broker` or `Config` takes out live shells' takeover/config; crashing `Pry` loses all breakpoints.
+
+## Cross-file invariants
+- `IEx.Server.__parse__/3` (`server.ex:392-414`) is the **only** boundary that catches parser exceptions; `IEx.Evaluator.parse/3` may raise and relies on that `try` — do not assume the evaluator's own `parse` is total.
+- `Config.validate_option/1` is assumed to have rejected bad config before any reader (`width/0`, `parser/0`, `color/1`) dereferences it; readers do minimal re-checking.
+- `Broker.take_over/3` assumes every server that was sent a `:take_over` will eventually `respond` (accept/refuse) or `:DOWN`, so `refuse/4` can drain `server_refs` to `[]` and reply exactly once — the reply-once invariant spans `broker.ex` accept/refuse/DOWN paths.
+- `Evaluator` assumes it holds the group leader and `:iex_server`/`:iex_evaluator` process-dictionary keys for the duration of `loop/1`; `pry` re-entrancy saves/restores them (`evaluator.ex:19-56`) — a missed restore corrupts the outer session.
+- `Server` assumes `evaluator` pid in `opts[:evaluator]` uniquely identifies the in-process pry target when routing `:take_over` (`server.ex:226`); a mismatch mis-routes the takeover to a rerun instead of an in-place break.
+
+---
+
+## Standards obligations (check each sub-claim against this file)
+
+Confirmed: IEx is Elixir's interactive shell — GenServer-based runtime/utility code with no external protocol or algorithm standard.
+
+<!-- rfc-governed: no -->
+<!-- standards: -->
+
+# Documented-Contract / Behavioural-Obligation List — `elixir/lib/iex`
+
+## What this folder is
+
+This is **IEx**, Elixir's interactive shell (`Interactive Elixir`). The modules are runtime/utility code: a shell server (`IEx.Server`), an evaluator loop (`IEx.Evaluator`), a takeover broker (`IEx.Broker`, a `GenServer`), tab-completion (`IEx.Autocomplete`), expression history (`IEx.History`), the `pry`/breakpoint machinery (`IEx.Pry`), config (`IEx.Config`), help/introspection (`IEx.Introspection`, `IEx.Helpers`, `IEx.Info`), and the OTP application (`IEx.App`). There is **no** on-the-wire protocol, no wire/file format consumed by third-party tools, and no cryptographic algorithm. There are **no** standards-data tables in or beside the folder (only Elixir source, `mix.exs`, and ExUnit tests).
+
+## Standards references accounted for
+
+The scan reported **"(no standards references found in the application tree)"**, and reading a representative subset (`server`, `broker`, `autocomplete`, `evaluator`, `iex`) confirms it: the code implements the Elixir/OTP shell, not any IETF/ITU/W3C/ISO/NIST/FIPS specification. There is therefore **no external protocol/algorithm standard** to enumerate, and the RFC-governance verdict is `no`. The only "standards" that touch this code are OTP-internal conventions (`gen_server`/`gen_statem` behaviour callbacks, `-spec`/typespec/`@doc` contracts) and generic secure-coding practice — both explicitly excluded from the compliance pass by the instructions above.
+
+## Applicable standards / contracts
+
+### External standards
+None. The `<!-- standards: -->` marker is intentionally empty. Nothing in this folder implements a network protocol, wire/document format, or standardized algorithm whose normative clauses a single-file reviewer could not derive from the code itself.
+
+### OTP-internal contracts (per-file context, NOT compliance obligations)
+These are guidance for the per-file reviewer only — **not** standard-conformance obligations:
+
+- **`GenServer` behaviour** — `IEx.Broker` (and any other `use GenServer` module) must implement `handle_call/3`, `handle_cast/2`, `handle_info/2`, `init/1` return shapes correctly and tolerate unexpected messages without crashing.
+- **Typespec / `@spec` contracts** — e.g. `IEx.Server.run_opts`, `IEx.Broker.take_ref`/`shell`. Public functions should return the shapes their specs declare.
+- **`@doc`/`@moduledoc` documented behaviour** — e.g. `IEx.Evaluator` "trapping exceptions in the code being evaluated", `IEx.Server` group-leader I/O responsibilities.
+- **Application/supervision contract** — `IEx.App` as an OTP application callback.
+
+## Checkable sub-claims
+
+These are OTP-internal / secure-coding checks the per-file reviewer may apply; **none** is an external-standard compliance obligation.
+
+1. **HANDLE_INFO_TOLERATES_UNKNOWN** — `GenServer` callbacks (`IEx.Broker`) must not crash on unknown `handle_info`/`handle_call` messages; ignore or log. (`gen_server(3)`.)
+2. **DOCUMENTED_RETURN_SHAPE** — Functions must return the tuple/type their `@spec` declares; no extra elements or silent demotion. (Typespec.)
+3. **EVAL_TRAPS_EXCEPTIONS** — The evaluator must trap exceptions raised by user-entered code and continue the loop, not let them kill the shell session. (`IEx.Evaluator` `@doc`.)
+4. **RESOURCE_CLEANED_ON_ERROR_PATH** — Monitors/refs/processes taken during `pry`/takeover (`IEx.Broker`, `IEx.Pry`) must be demonitored/released on every error and normal-exit path. (`try/after` / OTP convention.)
+5. **MONITOR_REF_CLEARED** — `take_ref`/`reference()` handles created for takeover must be cleared when the taking process dies (`DOWN` handling), preventing stale-ref leaks. (OTP monitor convention.)
+6. **GROUP_LEADER_IO_ONLY** — Shell I/O must go through the group leader as documented, not directly to `:stdio`, so remote/nested shells behave correctly. (`IEx.Server` `@doc`.)
+7. **NO_RAISE_ON_MALFORMED_INPUT** — Autocomplete/introspection entry points fed malformed or partial input should return an empty/`{:no, …}` result rather than raise. (`IEx.Autocomplete`, `IEx.Introspection` `@doc`.)
+8. **HISTORY_BOUNDED** — Expression history must honour its configured size limit and not grow unbounded. (`IEx.History` / `IEx.Config`.)
+9. **CONFIG_DEFAULTS_VALIDATED** — `IEx.Config` must supply defaults and reject/normalise invalid option values rather than propagate them into the eval loop. (`IEx.Config` contract.)
+10. **PRY_RESTORES_STATE** — After a `pry`/breakpoint session ends (normally or by error), the evaluator must restore normal evaluation and not leave the server wedged. (`IEx.Pry`/`IEx.Server` `@doc`.)
+
+## Per-file checking instructions
+
+Treat this folder as **out of scope for the external-standards compliance pass** — the `<!-- standards: -->` marker is empty and there is no protocol/algorithm to adjudicate. For per-file review, use the OTP-internal sub-claims above only as context: for each sub-claim that could plausibly apply to the file in hand, look for code that satisfies it (a `try/after` releasing a monitor, a catch-all `handle_info`, a spec-matching return, input validation before use). If the file declares a default, guard, or cleanup that satisfies the claim, name it. If a claim is clearly relevant (e.g. a `GenServer` with no catch-all clause, or a takeover path that leaks a monitor on error) and no satisfying code is present, report it as an ordinary correctness / resource-leak / crash-safety finding under the appropriate failure-mode class — **not** as an RFC/standards-conformance violation.
+
+---
+

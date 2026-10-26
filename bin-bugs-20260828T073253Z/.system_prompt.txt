@@ -1,0 +1,80 @@
+## Folder threat model (standing context)
+
+# Folder correctness/bug profile: `elixir/bin`
+
+## What this code actually is
+
+**This folder contains no `.erl` files and implements no wire protocol.** It is the Elixir toolchain's **launcher layer**: POSIX `sh` scripts (`elixir`, `elixirc`, `iex`), Windows batch files (`elixir.bat`, `elixirc.bat`, `iex.bat`, `mix.bat`), a PowerShell shim (`mix.ps1`), and an `escript`-style Elixir stub (`mix`, whose only body is `Mix.CLI.main()`). Their sole job is to **parse a command line and re-exec `erl`/`erl.exe`/`run_erl`** with a reconstructed argument vector. Version stamped `ELIXIR_VERSION=1.21.0-dev`. No RFC/NIST/standards body governs this — the relevant "spec" is the self-documented usage text in each script and POSIX `sh` / cmd.exe / PowerShell quoting semantics. The per-file reviewer should judge these as **argument-marshalling shell programs**, not Erlang modules; the protocol-decoder / gen_server / supervisor framing in the review brief does not apply here.
+
+Public entry points: the executables themselves (`elixir [opts] file.exs`, `elixirc`, `iex`, `mix`). `elixirc`, `iex`, and `mix` are thin wrappers that all `exec`/`call` back into `elixir`(`.bat`), so **`elixir`/`elixir.bat` is the one file where real logic lives**; the others are delegation stubs.
+
+## Trust / contract boundaries
+
+- **Caller-supplied argv** (operator/local user) is the primary untrusted-shaped input. Flags like `--erl`, `--cookie`, `--name`, `--boot`, `--vm-args`, `--erl-config`, `--pipe-to`, `-e`, `--rpc-eval` all flow into the re-exec'd command line.
+- **Environment variables** are an implicit input surface: `ELIXIR_ERL_OPTIONS`, `ELIXIR_CLI_DRY_RUN`, `OSTYPE`, `ERTS_BIN`, `PATH` (for locating `erl`). `ELIXIR_ERL_OPTIONS` is injected **unquoted** into the final `set --`/command line by design.
+- **Contract the caller must honour:** "standalone" options (`-v`, `--help`, `--short-version`) must not be combined with others; flags marked `(*)` take a fixed arg count (the `C=`/`S=` counters in `elixir` and the `shift` counts in `.bat` encode this). The `--pipe-to` path is **Unix-only** (batch explicitly rejects it).
+- These launchers are typically fed **operator-controlled** argv, not network data. The realistic threat model is a *malformed or adversarial argv/env* (e.g. supplied by a wrapping script, CI config, or a `mix` task), not a remote peer.
+
+## Failure-mode model (what to actually look for)
+
+These are shell/batch bug classes, not Erlang ones:
+
+- **Argument-count desync.** In `elixir`, each flag sets `C` (copy N words to the `-extra` tail) or `S` (shift N, consume as Erlang args). An off-by-one in `C`/`S` for any flag silently drops or duplicates a following argument, or shifts a value into the wrong bucket. This is the single most likely correctness bug in the file. Cross-check every `case` arm's `C=`/`S=` against the flag's real arity.
+- **Quoting / word-splitting.** `ERL="$ERL $2"` accumulates into a **space-joined string** that is later re-split by the shell — any arg containing spaces breaks. Contrast with the `erl_set`/`E` "array emulation" used for `--cookie`, `--name`, etc., which *does* preserve spaces. A flag routed through `ERL` instead of `erl_set` when it can carry spaces is a latent bug.
+- **`starts_with` misuse in `--pipe-to`:** `[ "$(starts_with …)" ]` tests whether the *command substitution output* is non-empty. `starts_with` prints nothing (it only sets exit status via `true`/`false`), so the guard is effectively always false — the switch-rejection check likely never fires. Worth flagging.
+- **`readlink_f`** recursive symlink resolver: no cycle guard; a symlink loop recurses until the shell dies. Also `cd … > /dev/null` relies on `set -e` staying armed.
+- **`.bat` delayed-expansion quoting:** `set par="!par:"=\"!"` re-quotes embedded quotes; the `if ""==!par:-e=!` substring tests match *any* arg containing the flag text, not just the flag — a value like `-example` can be misclassified. cmd.exe `shift` does not affect `%*`, so `%*` at the end re-passes the *original* argv regardless of prior `shift`s (intentional here, but a classic trap).
+- **PowerShell array flattening** in `mix.ps1` reintroduces commas manually; an off-by-one in the inner `for ($j … length-1)` loop would drop or mis-place a comma.
+
+## Cross-file invariants the per-file reviewer would miss
+
+- `elixirc`, `iex`, `mix.bat`, `elixirc.bat`, `iex.bat` **all delegate to `elixir`/`elixir.bat`**. Any argv the wrappers prepend (`+elixirc`, `+iex`, `--no-halt --erl "-user elixir"`, the `mix` script path) becomes `$1…` inside `elixir`'s parser and **must be recognised by a `case`/`if` arm there**. A reviewer inspecting `iex` alone cannot tell whether `+iex`/`--dbg`/`--remsh` are handled — that lives in `elixir`. `+elixirc` and `+iex` are consumed (`C=1`) in `elixir`; `mix` is an Elixir file passed as the script path, so it falls into the `*)` "rest are program args" branch.
+- The `+iex` marker set in the wrapper is the **only** thing that flips `MODE=iex`, which in turn decides whether `-s elixir start_cli` is prepended. If the parser's `*)` catch-all fires *before* `+iex` is seen (i.e. argument order), `MODE` stays `cli` — an ordering invariant the wrappers rely on by always putting `+iex` first.
+- The `sh` and `.bat`/`.ps1` variants are **intended to be behaviourally equivalent**; divergence between them (a flag handled in one, dropped or given a different arity in the other) is a real bug even though each file looks internally consistent. Diff the flag tables across `elixir` ↔ `elixir.bat` when assessing any single arm.
+- `ERTS_BIN=` / `ERTS_BIN="$ERTS_BIN"` is a **release-rewrite anchor** — the comment forbids changing the second line. Edits there look harmless in isolation but break `mix release`-generated launchers.
+
+---
+
+## Standards obligations (check each sub-claim against this file)
+
+<!-- rfc-governed: no -->
+<!-- standards: -->
+
+# Documented-Contract / Behavioural-Obligation List — `elixir/bin`
+
+## Nature of the folder
+
+This folder contains the **Elixir language launcher scripts**, not `.erl` source modules. It holds POSIX `/bin/sh` scripts (`elixir`, `elixirc`, `iex`, `mix`) and their Windows counterparts (`*.bat`, `mix.ps1`). Their job is to parse command-line switches, marshal them into Erlang VM (`erl` / `run_erl` / `to_erl`) invocations, resolve the script's own path (`readlink_f`), and `exec` the runtime. There is no network protocol, no wire/message format, no state machine, and no cryptographic algorithm implemented here — only argument shuffling and process launch.
+
+## Applicable standards / contracts
+
+### External standards
+**None.** No IETF RFC, ITU-T / W3C / ISO-IEC recommendation, or NIST/FIPS publication governs this folder. The `--cookie` / `--sname` / `--name` distribution options and `--boot`, `--vm-args`, `--pipe-to` options are pass-throughs to Erlang/OTP tooling (`erl`, `run_erl`, `to_erl`); the Erlang distribution protocol itself is implemented elsewhere in the runtime, not in these launcher scripts. There are consequently **no external protocol/algorithm conformance obligations** for the compliance pass to adjudicate — this is the empty-list case.
+
+**Standards references gathered from the tree:** the scan reported *(no standards references found in the application tree)*, and reading the folder confirms it — there is nothing to account for or explain away.
+
+### OTP-internal / shell contracts (per-file context, NOT compliance obligations)
+The only "contracts" here are the launcher's own documented CLI behaviour and POSIX-shell portability conventions. These are guidance for the per-file reviewer, not standard-conformance obligations:
+
+- The `USAGE` heredoc in each script is the documented switch surface; the parser's `case` arms (copy-count `C` vs shift-count `S`) must stay consistent with it.
+- Scripts are `#!/bin/sh` and use `set -e`; they must remain POSIX-portable (no bashisms) and must not word-split unquoted user-supplied paths.
+- The `ERTS_BIN=$ERTS_BIN` line carries an in-file MUST-NOT-EDIT comment because Elixir releases rewrite it — a mechanical (release-tooling) contract, not an external standard.
+
+## Checkable sub-claims
+
+1. **ARG_QUOTING_PRESERVED** — User-supplied values (file paths, `-e` commands, cookie, node name) must stay individually quoted through the array-mimicking `erl_set`/`E$n` marshalling and the final `set -- … "$@"`, so paths with spaces reach `exec` intact. (Shell-safety convention; `elixir:88-91,211-216,229`.)
+2. **PIPE_TO_SWITCH_REJECTED** — `--pipe-to` must reject a PIPEDIR/LOGDIR that begins with `-` (a switch masquerading as a directory) before `mkdir`/`run_erl`. (`elixir:184-188`.)
+3. **SHIFT_COUNT_MATCHES_ARITY** — Each option's copy (`C`) / shift (`S`) count must match the number of tokens it actually consumes; an off-by-one drops or duplicates a following argument. (`elixir:112-209`.)
+4. **SYMLINK_RESOLVED_SAFELY** — `readlink_f` must resolve chained symlinks to locate the real script/`../lib` root; failure would load the wrong `elixir/ebin`. (`elixir:69-77,218-229`.)
+5. **ERTS_BIN_LINE_UNMODIFIED** — The `ERTS_BIN=$ERTS_BIN` line must be left exactly as-is per its in-file comment (release tooling rewrites it). (`elixir:224-227`.)
+6. **SET_E_ERROR_PROPAGATION** — With `set -e`, a failed intermediate command must not be silently swallowed; error paths (`echo … >&2 && exit 1`) must terminate with non-zero status. (`elixir:7,185-187`.)
+7. **STANDALONE_OPTS_EXCLUSIVE** — Standalone switches (`--help`, `--version`, `--short-version`) must be honoured only when given alone, matching the documented "can't be combined" rule. (`elixir:11,79-82`; USAGE lines 64.)
+8. **NO_UNQUOTED_GLOB_EVAL** — `eval`-based slot storage (`eval "E${E}=\$1"`) must not expand user data as code or globs; the escaping in the `--pipe-to` `sed` filter must cover shell metacharacters. (`elixir:88-90,231-235`.)
+9. **WINDOWS_PARITY** — The `.bat` / `.ps1` variants should parse the same documented switch set as the `sh` scripts; a switch handled on one platform but silently dropped on the other is a defect. (`elixir.bat`, `mix.ps1` vs `elixir`, `mix`.)
+
+## Per-file checking instructions
+
+There are **no external protocol/algorithm obligations** for this folder — the RFC-compliance pass has nothing to adjudicate here (empty `standards` marker). For the per-file review, treat the numbered sub-claims as **shell-correctness and CLI-contract** checks, not standards-conformance checks: for each claim that plausibly applies to the file under review, look for the code that satisfies it (correct shift/copy arithmetic, quoting of user values, switch-rejection guards, symlink resolution). If a launcher script parses a documented switch with the wrong arity, fails to quote a user-supplied path before `exec`, or drops a guard present in its sibling platform script, report it as a finding under the appropriate shell-safety / argument-injection failure class — not as an RFC gap.
+
+---
+

@@ -1,0 +1,33 @@
+# Correctness / Bug Profile — `iex` (Interactive Elixir REPL)
+
+## Protocol / standard implemented
+This is **IEx**, Elixir's interactive shell (source is `.ex`, not `.erl`). It is not a network protocol implementation; it is a REPL layered on the Erlang/OTP shell infrastructure. Governing specs are informal: the **Erlang `:io` protocol** (`{:io_request, from, ref, {:get_until, …}}` / `{:io_reply, …}`, see `server.ex:384-414`), OTP **`user_drv`/`:shell`/group-leader** conventions (`broker.ex:22-31`), **distributed Erlang** (`:erpc.call`, `Node.list()` in `broker.ex:167-173`), and **`:proc_lib`** process startup. Documented public entry points: `IEx` (`iex.ex` — `pry/0-1`, `configure/1`, `break!/2`, `started?/0`, color/inspect helpers), `IEx.Helpers` (the huge user-facing helper set — `h`, `r`, `c`, `i`, `open`, `recompile`, `ls`, etc.), `IEx.Pry` (`pry/2`, `break/4`, `breaks/0`, `remove_breaks/0`), `IEx.Server.run/1`, `IEx.Broker`, and `IEx.Config`.
+
+## Trust / contract boundaries
+IEx's dominant trust model is a **fully-trusted local user**: code typed at the prompt is `eval`'d with full VM privileges, so "arbitrary code execution" is the feature, not a vuln. The interesting boundaries are the *non-prompt* ones:
+- **`.iex.exs` file** (`evaluator.ex:280-318`): read from cwd, `$IEX_HOME`, or `System.user_home()` and *evaluated*. A malicious file dropped in a directory you `iex` from runs code. Contract: path is operator-supplied; content is untrusted-if-cwd-is-untrusted.
+- **Distributed / remote shell** (`--remsh`, `broker.ex:167-173`, `IEx.Autocomplete.remsh`): `:erpc.call` to peer nodes and takeover requests cross a **node boundary**. A connected node is only as trusted as the Erlang cookie. `Broker.servers/1` monitors remote shell pids each call.
+- **Takeover / pry protocol** (`server.ex:76`, `217-243`, `broker.ex`): `{:take_over, pid, ref, location, whereami, opts}` messages carry peer-controlled `location`/`whereami` strings that are printed; `opts[:evaluator]` steers dispatch.
+- **Autocomplete input** (`autocomplete.ex`): parses partial, possibly-malformed expression fragments from the line editor — the one place arbitrary *unevaluated* text is structurally decoded.
+- **`IEx.Config`** (`config.ex`): operator config via `configure/1`, validated in `validate_option/1`. Note validation covers only the documented keys; `merge_option`/`update_configuration` write straight into `Application` env.
+
+## Failure-mode model
+Because almost everything eventually crashes into a supervised restart, the salient bugs are **not** crash-on-input but:
+- **State-threading errors** in `IEx.Server`'s hand-rolled loop (`loop`/`wait_input`/`wait_eval`/`wait_common`/`handle_common`): the `%IEx.Server{}` struct, `counter`, and `parser_state` are threaded manually across many receive clauses. Passing a stale `state`, dropping a `bump_counter`, or resetting `parser_state` on the wrong branch produces a silently wrong prompt counter, lost continuation buffer, or mis-routed takeover.
+- **Dispatch fall-through**: `handle_common/6` ends in a catch-all `callback.(state)` (`server.ex:312`); a message shape that should be handled but is matched by the catch-all is silently re-looped. Likewise `evaluator.ex:207` `loop/1` only matches tagged `^server`/`^ref` messages — an untagged message stays in the mailbox forever.
+- **Monitor/ref leaks**: `Broker.servers/1` calls `Process.monitor` on every shell pid on *every* takeover with no matching demonitor; takeover bookkeeping in `state.takeovers` must be pruned on both `:refuse` and `:DOWN` (`broker.ex:143-165`) — a missed prune leaks a pending `from` that never gets `GenServer.reply`, hanging the caller (`take_over/3` calls with `:infinity`).
+- **Accumulator/edge-case drops** in `IEx.History` pruning (`history.ex:90-106`) and `has_bin` recursion.
+- **Parser state corruption** in `IEx.Evaluator.parse/3` (`evaluator.ex:70-148`): `adjust_operator` prepends `v(-1)` tokens for pipe-continuation; wrong `last_op` (`:match` vs `:other`) threading changes semantics silently.
+
+## Common bug patterns for this family (REPL/stdlib)
+Guard operator-precedence and `andalso`/`orelse` typos; `0`/`O` and `l`/`1` confusions in helper parsing; off-by-one in the eval `counter` and in `History.nth/2`'s positive/negative index guards (`history.ex:46-64`); a helper returning a tuple shape the docstring doesn't promise; `case`/`cond` clause omitted after a refactor so a legal message hits the fallthrough; `try/catch` in `Evaluator` swallowing an error and returning stale `state`.
+
+## Supervisor / process structure
+`IEx.App` starts `IEx.Supervisor` (`:one_for_one`) over three children: **`IEx.Config`** (an `Agent` owning a public ETS table `IEx.Config` holding `after_spawn` hooks), **`IEx.Broker`** (`GenServer`, registry of servers + pending takeovers), **`IEx.Pry`** (`GenServer`, ETS-backed breakpoint table + counter). `IEx.MixListener` (`GenServer`) purges recompiled modules. `IEx.Server` and `IEx.Evaluator` are **unsupervised** `:proc_lib`/spawned processes linked to the group leader; the server `trap_exit`s and manually resurrects a dead evaluator (`server.ex:291-310`). Crashing `Broker` or `Config` takes out live shells' takeover/config; crashing `Pry` loses all breakpoints.
+
+## Cross-file invariants
+- `IEx.Server.__parse__/3` (`server.ex:392-414`) is the **only** boundary that catches parser exceptions; `IEx.Evaluator.parse/3` may raise and relies on that `try` — do not assume the evaluator's own `parse` is total.
+- `Config.validate_option/1` is assumed to have rejected bad config before any reader (`width/0`, `parser/0`, `color/1`) dereferences it; readers do minimal re-checking.
+- `Broker.take_over/3` assumes every server that was sent a `:take_over` will eventually `respond` (accept/refuse) or `:DOWN`, so `refuse/4` can drain `server_refs` to `[]` and reply exactly once — the reply-once invariant spans `broker.ex` accept/refuse/DOWN paths.
+- `Evaluator` assumes it holds the group leader and `:iex_server`/`:iex_evaluator` process-dictionary keys for the duration of `loop/1`; `pry` re-entrancy saves/restores them (`evaluator.ex:19-56`) — a missed restore corrupts the outer session.
+- `Server` assumes `evaluator` pid in `opts[:evaluator]` uniquely identifies the in-process pry target when routing `:take_over` (`server.ex:226`); a mismatch mis-routes the takeover to a rerun instead of an in-place break.

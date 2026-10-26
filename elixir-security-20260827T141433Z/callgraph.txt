@@ -1,0 +1,197 @@
+elixir:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir.erl
+  callers: `elixir_compiler`, `elixir_errors`, `elixir_module`, `iex`
+  callees: `elixir_config`, `elixir_env`, `elixir_erl_pass`, `elixir_erl_var`, `elixir_errors`, `elixir_expand`, `elixir_quote`, `elixir_sup`, `elixir_tokenizer`, `elixir_utils`, `iex`
+  headers: `elixir.hrl`
+
+elixir_aliases:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_aliases.erl
+  callers: `elixir_compiler`, `elixir_dispatch`, `elixir_erl_compiler`, `elixir_erl_pass`, `elixir_errors`, `elixir_expand`, `elixir_import`, `elixir_lexical`, `elixir_map`, `elixir_module`, `elixir_overridable`, `elixir_quote`, `elixir_utils`
+  callees: `elixir_config`, `elixir_env`, `elixir_errors`, `elixir_utils`
+  headers: `elixir.hrl`
+
+elixir_bitstring:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_bitstring.erl
+  callers: `elixir_expand`
+  callees: `elixir_env`, `elixir_errors`, `elixir_expand`
+  headers: `elixir.hrl`
+
+elixir_bootstrap:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_bootstrap.erl
+  callers: _(none)_
+  callees: `elixir_module`, `elixir_quote`
+  headers: _(none)_
+
+elixir_clauses:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_clauses.erl
+  callers: `elixir_def`, `elixir_expand`, `elixir_fn`
+  callees: `elixir_env`, `elixir_expand`, `elixir_utils`
+  headers: `elixir.hrl`
+
+elixir_code_server:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_code_server.erl
+  callers: `elixir_compiler`, `elixir_module`
+  callees: _(none)_
+  headers: _(none)_
+
+elixir_compiler:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_compiler.erl
+  callers: `elixir_module`
+  callees: `elixir`, `elixir_aliases`, `elixir_code_server`, `elixir_config`, `elixir_env`, `elixir_erl`, `elixir_erl_compiler`, `elixir_erl_pass`, `elixir_erl_var`, `elixir_expand`, `elixir_lexical`, `elixir_module`, `elixir_utils`
+  headers: `elixir.hrl`
+
+elixir_config:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_config.erl
+  callers: `elixir`, `elixir_aliases`, `elixir_compiler`, `elixir_erl`, `elixir_errors`, `elixir_expand`, `elixir_lexical`, `elixir_module`, `elixir_tokenizer`, `elixir_utils`
+  callees: _(none)_
+  headers: _(none)_
+
+elixir_def:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_def.erl
+  callers: `elixir_dispatch`, `elixir_map`, `elixir_module`, `elixir_overridable`
+  callees: `elixir_clauses`, `elixir_env`, `elixir_erl`, `elixir_errors`, `elixir_expand`, `elixir_lexical`, `elixir_module`, `elixir_quote`, `elixir_utils`
+  headers: `elixir.hrl`
+
+elixir_dispatch:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_dispatch.erl
+  callers: `elixir_env`, `elixir_expand`, `elixir_fn`, `elixir_module`, `elixir_quote`
+  callees: `elixir_aliases`, `elixir_def`, `elixir_env`, `elixir_errors`, `elixir_expand`, `elixir_import`, `elixir_module`, `elixir_quote`, `elixir_rewrite`, `elixir_utils`
+  headers: `elixir.hrl`
+
+elixir_env:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_env.erl
+  callers: `elixir`, `elixir_aliases`, `elixir_bitstring`, `elixir_clauses`, `elixir_compiler`, `elixir_def`, `elixir_dispatch`, `elixir_expand`, `elixir_fn`, `elixir_import`, `elixir_lexical`, `elixir_map`, `elixir_module`, `elixir_quote`
+  callees: `elixir_dispatch`, `elixir_errors`
+  headers: `elixir.hrl`
+
+elixir_erl:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_erl.erl
+  callers: `elixir_compiler`, `elixir_def`, `elixir_erl_pass`, `elixir_module`
+  callees: `elixir_config`, `elixir_erl_clauses`, `elixir_erl_compiler`, `elixir_errors`, `elixir_module`, `elixir_utils`
+  headers: `elixir.hrl`
+
+elixir_erl_clauses:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_erl_clauses.erl
+  callers: `elixir_erl`, `elixir_erl_for`, `elixir_erl_pass`, `elixir_erl_try`
+  callees: `elixir_erl_pass`, `elixir_utils`
+  headers: `elixir.hrl`
+
+elixir_erl_compiler:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_erl_compiler.erl
+  callers: `elixir_compiler`, `elixir_erl`, `elixir_module`
+  callees: `elixir_aliases`, `elixir_errors`, `elixir_utils`
+  headers: `elixir.hrl`
+
+elixir_erl_for:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_erl_for.erl
+  callers: `elixir_erl_pass`
+  callees: `elixir_erl_clauses`, `elixir_erl_pass`, `elixir_erl_var`, `elixir_utils`
+  headers: `elixir.hrl`
+
+elixir_erl_pass:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_erl_pass.erl
+  callers: `elixir`, `elixir_compiler`, `elixir_erl_clauses`, `elixir_erl_for`
+  callees: `elixir_aliases`, `elixir_erl`, `elixir_erl_clauses`, `elixir_erl_for`, `elixir_erl_try`, `elixir_erl_var`, `elixir_utils`
+  headers: `elixir.hrl`
+
+elixir_erl_try:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_erl_try.erl
+  callers: `elixir_erl_pass`
+  callees: `elixir_erl_clauses`, `elixir_erl_var`, `elixir_utils`
+  headers: `elixir.hrl`
+
+elixir_erl_var:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_erl_var.erl
+  callers: `elixir`, `elixir_compiler`, `elixir_erl_for`, `elixir_erl_pass`, `elixir_erl_try`
+  callees: _(none)_
+  headers: `elixir.hrl`
+
+elixir_errors:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_errors.erl
+  callers: `elixir`, `elixir_aliases`, `elixir_bitstring`, `elixir_def`, `elixir_dispatch`, `elixir_env`, `elixir_erl`, `elixir_erl_compiler`, `elixir_expand`, `elixir_fn`, `elixir_import`, `elixir_lexical`, `elixir_module`, `elixir_overridable`, `elixir_tokenizer`
+  callees: `elixir`, `elixir_aliases`, `elixir_config`, `elixir_module`, `elixir_utils`
+  headers: `elixir.hrl`
+
+elixir_expand:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_expand.erl
+  callers: `elixir`, `elixir_bitstring`, `elixir_clauses`, `elixir_compiler`, `elixir_def`, `elixir_dispatch`, `elixir_fn`, `elixir_map`
+  callees: `elixir_aliases`, `elixir_bitstring`, `elixir_clauses`, `elixir_config`, `elixir_dispatch`, `elixir_env`, `elixir_errors`, `elixir_fn`, `elixir_import`, `elixir_map`, `elixir_overridable`, `elixir_quote`, `elixir_rewrite`, `elixir_utils`
+  headers: `elixir.hrl`
+
+elixir_fn:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_fn.erl
+  callers: `elixir_expand`
+  callees: `elixir_clauses`, `elixir_dispatch`, `elixir_env`, `elixir_errors`, `elixir_expand`, `elixir_module`
+  headers: `elixir.hrl`
+
+elixir_import:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_import.erl
+  callers: `elixir_dispatch`, `elixir_expand`, `elixir_module`
+  callees: `elixir_aliases`, `elixir_env`, `elixir_errors`, `elixir_module`
+  headers: `elixir.hrl`
+
+elixir_interpolation:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_interpolation.erl
+  callers: `elixir_tokenizer`
+  callees: `elixir_tokenizer`, `elixir_utils`
+  headers: `elixir.hrl`, `elixir_tokenizer.hrl`
+
+elixir_lexical:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_lexical.erl
+  callers: `elixir_compiler`, `elixir_def`, `elixir_module`
+  callees: `elixir_aliases`, `elixir_config`, `elixir_env`, `elixir_errors`
+  headers: `elixir.hrl`
+
+elixir_map:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_map.erl
+  callers: `elixir_expand`
+  callees: `elixir_aliases`, `elixir_def`, `elixir_env`, `elixir_expand`, `elixir_module`, `elixir_quote`, `elixir_utils`
+  headers: `elixir.hrl`
+
+elixir_module:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_module.erl
+  callers: `elixir_bootstrap`, `elixir_compiler`, `elixir_def`, `elixir_dispatch`, `elixir_erl`, `elixir_errors`, `elixir_fn`, `elixir_import`, `elixir_map`, `elixir_overridable`
+  callees: `elixir`, `elixir_aliases`, `elixir_code_server`, `elixir_compiler`, `elixir_config`, `elixir_def`, `elixir_dispatch`, `elixir_env`, `elixir_erl`, `elixir_erl_compiler`, `elixir_errors`, `elixir_import`, `elixir_lexical`, `elixir_overridable`, `elixir_utils`
+  headers: `elixir.hrl`
+
+elixir_overridable:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_overridable.erl
+  callers: `elixir_expand`, `elixir_module`
+  callees: `elixir_aliases`, `elixir_def`, `elixir_errors`, `elixir_module`
+  headers: `elixir.hrl`
+
+elixir_quote:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_quote.erl
+  callers: `elixir`, `elixir_bootstrap`, `elixir_def`, `elixir_dispatch`, `elixir_expand`, `elixir_map`
+  callees: `elixir_aliases`, `elixir_dispatch`, `elixir_env`, `elixir_utils`
+  headers: `elixir.hrl`
+
+elixir_rewrite:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_rewrite.erl
+  callers: `elixir_dispatch`, `elixir_expand`
+  callees: `elixir_utils`
+  headers: `elixir.hrl`
+
+elixir_sup:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_sup.erl
+  callers: `elixir`
+  callees: _(none)_
+  headers: _(none)_
+
+elixir_tokenizer:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_tokenizer.erl
+  callers: `elixir`, `elixir_interpolation`
+  callees: `elixir_config`, `elixir_errors`, `elixir_interpolation`, `elixir_utils`
+  headers: `elixir.hrl`, `elixir_tokenizer.hrl`
+
+elixir_utils:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/elixir_utils.erl
+  callers: `elixir`, `elixir_aliases`, `elixir_clauses`, `elixir_compiler`, `elixir_def`, `elixir_dispatch`, `elixir_erl`, `elixir_erl_clauses`, `elixir_erl_compiler`, `elixir_erl_for`, `elixir_erl_pass`, `elixir_erl_try`, `elixir_errors`, `elixir_expand`, `elixir_interpolation`, `elixir_map`, `elixir_module`, `elixir_quote`, `elixir_rewrite`, `elixir_tokenizer`, `iex`
+  callees: `elixir_aliases`, `elixir_config`
+  headers: `elixir.hrl`, `file.hrl`
+
+iex:
+  file: /Users/lukas/code/claude-scanner/elixir/lib/elixir/src/iex.erl
+  callers: `elixir`
+  callees: `elixir`, `elixir_utils`
+  headers: _(none)_

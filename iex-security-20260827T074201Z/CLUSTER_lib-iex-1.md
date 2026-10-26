@@ -1,0 +1,19 @@
+# Cluster cross-file findings
+
+#### `CSCAN-cluster-shell-boot-pry-consent-bypass`
+
+- **Finding ID** — `CSCAN-cluster-shell-boot-pry-consent-bypass`
+- **Severity** — Low
+- **Confidence** — high
+- **Files involved**
+  - `elixir/lib/iex/lib/iex/server.ex:74-91` (`shell_loop/3`, unconditional auto-accept at line 79); contrast the steady-state gate at `:225-243` (`handle_common`) and the consent prompt at `:316-322` (`take_over?/6`).
+  - `elixir/lib/iex/lib/iex/pry.ex:35-77` (public `pry/2`, the `take_over` initiator at line 65) and the second public entry `:79-82` (`pry/2` list-opts variant).
+  - Supporting mechanism (out-of-cluster, read for confirmation): `elixir/lib/iex/lib/iex/broker.ex:101-116` (fan-out of `{:take_over,…}` to every server) and `:67-69,124-133` (`respond`/`:accept` trust the boolean verbatim).
+- **Finding shape** — Authn/authz split; also "safe because the caller checks" broken.
+- **Evidence**
+  - The consent gate for a *foreign* pry lives only in `server.ex take_over?/6` (`:316-322`), which prints `"…Allow? [Yn] "` and calls `IEx.Broker.respond/4` with the operator's answer. In steady state, `handle_common` (`:225-237`) correctly routes any request whose `take_opts[:evaluator]` is **not** this shell's own evaluator into that prompting path.
+  - `shell_loop/3` (`server.ex:74-83`), the `run_from_shell` boot path, handles the identical `{:take_over, …}` message but responds with `take_over?(take_pid, take_ref, 1, true)` (`:79`) — the `is_boolean(response)` 4-arity variant (`:324-336`) with `response = true`. It performs **no** `evaluator == take_opts[:evaluator]` identity check and **never** invokes the `Allow? [Yn]` prompt, so `IEx.Broker.respond(_, _, _, true)` (broker.ex:67) accepts the takeover outright.
+  - The initiator is not privileged: `IEx.Pry.pry/2` is a documented public function ("You can invoke this function directly…", pry.ex:28-34) that any process may call; it stamps `[evaluator: self()]` and calls `IEx.Broker.take_over(location, whereami, …)` (pry.ex:65) unconditionally. Broker fans that genuine (un-forged) message to every server including the booting `shell_loop` (broker.ex:108-109). Because `shell_loop` accepts with no prompt while other shells block on `IO.gets`, it also wins the accept race (broker.ex:124-131 replies `:ok` to the first responder).
+  - Effect of an accept: `run_without_registration(init_state(opts), take_opts, nil)` (server.ex:80) seizes the operator's console for the foreign evaluator's binding/env and suspends that process as the shell's evaluator — i.e. an unrelated process forces an interactive pry session onto the operator's terminal without the consent the steady-state path requires.
+- **What the per-file pass missed** — The `server.ex` per-file report examined line 79 but dismissed the whole no-prompt branch with "Forcing it for a *foreign* evaluator requires forging a `:take_over` message with a matching `:evaluator` pid"; that justification is true for the identity-checked `handle_common` branch (line 226) but **false** for `shell_loop`, which does no evaluator check — and only by reading `pry.ex` does one see that a genuine, un-forged takeover for an arbitrary evaluator is emitted by a *public* API any process can call, so no single-file reviewer of either file could connect the un-gated acceptor to the public initiator.
+- **Suggested fix** — Make `shell_loop`'s takeover handling match `handle_common`: route requests whose `take_opts[:evaluator]` is not the boot callback's own process through the prompting `take_over?/6` (consent `Allow? [Yn]`), reserving the unconditional `take_over?(…, true)` for the shell's own evaluator. Minimal change: replace the `take_over?(take_pid, take_ref, 1, true)` call at server.ex:79 with the 6-arity prompting variant (passing `take_location`, `take_whereami`, `take_opts`, `1`).

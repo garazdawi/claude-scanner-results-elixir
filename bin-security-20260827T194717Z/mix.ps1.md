@@ -1,0 +1,45 @@
+# /Users/lukas/code/claude-scanner/elixir/bin/mix.ps1
+<!-- sha256: 67b1a63d7d8c5fcf0438e90c0170f152fbba6493795e1386703eb2005513ebcc -->
+<!-- tree: 3389f8405 2026-08-25 -->
+
+# Security review — `elixir/bin/mix.ps1`
+<!-- sha256: 67b1a63d7d8c5fcf0438e90c0170f152fbba6493795e1386703eb2005513ebcc -->
+
+_Re-reviewed on 2026-08-27_
+
+The single finding is a Windows batch/`cmd.exe` re-parse issue that cannot be executed in this Linux sandbox (no `pwsh`/`powershell`/`cmd.exe`/`wine` — confirmed). The sink it depends on (`mix.bat` forwarding `%*`) is no longer assumed: I read `mix.bat` and `elixir.bat` and confirmed the chain. The injection *behaviour* remains asserted (not executable here), so the finding is carried at medium confidence, not raised.
+
+## Summary
+A 27-line PowerShell wrapper that locates the sibling `mix.bat` from its own path and forwards the caller's arguments to it via the call operator (`& $mixBatPath $newArgs`). The only security-relevant surface is that boundary: PowerShell → a Windows batch file, where `cmd.exe` re-parses shell metacharacters.
+
+## Security
+
+#### `CSCAN-mix-ps1-batch-arg-injection`
+- **Finding ID:** `CSCAN-mix-ps1-batch-arg-injection`
+- **Severity:** Medium
+- **Confidence:** medium
+- **Location:** `mix.ps1:27`, top-level script body — `& $mixBatPath $newArgs`
+- **Class:** Windows-specific (batch argument re-splitting / command injection via `cmd.exe`)
+- **Impact:** When `mix.ps1` is invoked by a wrapper/automation (CI job, editor plugin, build orchestrator) that passes an argument derived from untrusted input — a branch name, a package/dependency name from a manifest, a filename — an argument containing an unquoted `cmd.exe` metacharacter (`&`, `|`, `<`, `>`, `^`) can execute an attacker-chosen command on the host. For the common interactive case the invoking user is the trust root (not a finding there); the folder threat model explicitly grants the "argument passed through by a higher-privileged wrapper" scenario, and this line is exactly the PowerShell→`cmd.exe` boundary.
+- **Evidence:** Sink **verified by read** this pass. `$mixBatPath` resolves to `mix.bat` (line 6), so `& $mixBatPath $newArgs` launches it through `cmd.exe`. I confirmed `mix.bat:7` is `call "%~dp0\elixir.bat" "%~dp0\mix" %*` — the caller's arguments are re-expanded verbatim via `%*`, so `cmd.exe` parses any embedded, unquoted `&`/`|`/`>` in an argument as command syntax. I further confirmed the next hop, `elixir.bat:9-15`, re-reads `%1`/`%2` positionally, so nothing between `mix.ps1` and the runtime neutralises the metacharacter. The injection *behaviour itself* is **asserted, not executed**: this Linux sandbox has no `pwsh`/`powershell`/`cmd.exe`/`wine` (checked), so I could not run e.g. `mix.ps1 run x&whoami` and observe `whoami` fire. PowerShell adds native-argument quoting only for arguments containing whitespace/quotes; a value like `x&calc` (no spaces) is passed to the child command line unquoted. This is the documented "BatBadBut"-class difficulty of passing arguments to Windows `.bat`/`.cmd` targets and is not fixable from the callee; it persists even under PowerShell 7.3+ `Standard` argument mode for batch targets.
+- **Suggested fix:** Avoid handing untrusted arguments to a batch file. Prefer invoking the Elixir `mix` entry point without the `cmd.exe` batch layer (call `elixir.bat`/`erl` with an argv array), or, if `mix.bat` must remain the target, reject/escape arguments containing `cmd.exe` metacharacters before forwarding. At minimum, document that `mix.ps1` must not be fed attacker-controlled arguments on Windows.
+
+### Ruled out
+- **Comma re-joining loop (`mix.ps1:11-19`) mangling arguments** — _Confidence: high (as a non-security correctness note)._ When PowerShell splits an unquoted `a,b,c` into an array, the loop appends `'a,'`, `'b,'`, `'c'` as three *separate* `$newArgs` elements rather than one `a,b,c` token, so the comma group reaches `mix.bat` as multiple whitespace-separated arguments. Traced by hand: `+=` appends each string as a distinct element. This is a **correctness** defect in the argv-encoding contract with `mix.bat`, not a security one — none of the split tokens begin with `-` unless they already did, and it introduces no new `cmd.exe` metacharacter, so no trust boundary is crossed by the mangling itself. (The metacharacter risk it *shares* is captured by the finding above.) Not executed (no PowerShell); the array-append semantics are language-level and do not depend on a sink I could run.
+- **`Get-ChildItem` on the mix.bat path (`mix.ps1:6`) treating `[ ] * ?` as wildcards** — _Confidence: medium._ `Get-ChildItem` interprets those as wildcard characters in the positional `-Path`, so an install directory containing `[` breaks resolution. This is a robustness bug; the path derives from `$MyInvocation.MyCommand.Path` (the script's *own* location), not attacker-supplied data, so no security boundary is crossed.
+- **Trusting sibling `mix.bat` from the script's directory (`mix.ps1:6,27`)** — _Confidence: high._ The script executes `mix.bat` from the same directory it itself lives in. An attacker who can write `mix.bat` there can equally replace `mix.ps1` itself, so this crosses no privilege boundary the attacker did not already hold. Distinct from the folder-wide `../lib/elixir/ebin` concern (a different relative path); nothing about the *sibling* load is separately exploitable.
+- **`Invoke-Expression` / dynamic code evaluation** — _Confidence: high._ Re-searched the file: no `Invoke-Expression`, `iex`, `& ([scriptblock]::Create(...))`, or string-to-code construction. The only invocation is `& $mixBatPath` on a fixed-name file object, so there is no string-eval sink.
+- **Argument-injection of a leading `-` into `mix`** — _Confidence: high._ All arguments are forwarded to `mix` without a `--` separator, but forwarding option-like tokens to the Mix task runner is the wrapper's documented purpose; the arguments are the caller's own and reach the Elixir program (not a `cmd.exe`/PowerShell option position). No trust boundary is crossed. (This is separate from the `cmd.exe` metacharacter finding above, which concerns the batch layer, not `mix`'s own option parser.)
+
+## Risks / caveats
+- **Not executed.** No PowerShell or `cmd.exe`/`wine` is available in this Linux sandbox (confirmed this pass), so the finding is reasoned from code plus the now-verified `mix.bat:7` `%*` sink and `elixir.bat:9-15` positional re-parse, not observed. The mechanism is well established, but exact behaviour varies with PowerShell version (`$PSNativeCommandArgumentPassing` `Legacy` vs `Standard`) and with how the specific metacharacter interacts with the caller's own quoting — a validator on Windows should confirm with `x&whoami`-style inputs.
+- **Trust-model dependence.** The finding is conditional: inert when a human runs `mix` interactively (they are the trust root), material only when a higher-privileged wrapper forwards untrusted-derived arguments. Rated Medium for the command-execution impact ceiling against that lower likelihood; absent any untrusted-arg wrapper it degrades to Low.
+- **No error handling / strict mode.** The script sets neither `Set-StrictMode` nor `$ErrorActionPreference = 'Stop'`; if `mix.bat` cannot be resolved, `$mixBatPath` is `$null` and the final call errors out. Robustness gap, not a security defect; not treated as a finding.
+
+## Did I verify this?
+- **Downstream `mix.bat` sink** — **Verified this pass.** Read `mix.bat`; line 7 is `call "%~dp0\elixir.bat" "%~dp0\mix" %*`, confirming the caller's args are forwarded verbatim through `%*`. The first-pass report cited this line but I had not independently opened the file; now confirmed.
+- **Next hop `elixir.bat`** — **Verified this pass (chain only).** Read `elixir.bat:1-40`; it re-reads arguments positionally (`%1`/`%2`) with no metacharacter sanitisation, confirming nothing between `mix.ps1` and the runtime neutralises an injected `&`/`|`/`>`. This resolves the first-pass "downstream `cmd.exe` parsing in `elixir.bat` … out of scope" hedge: the immediate two-hop chain is now read, not assumed. Deeper `run_erl`/`erl` assembly remains a separate file's review.
+- **The injection behaviour itself** — **Not verified (not executable here).** No `pwsh`/`powershell`/`cmd.exe`/`wine` in the sandbox (checked via `command -v`). The sandbox's Erlang/OTP toolchain does not help: `mix.ps1`'s counterpart is a PowerShell/`cmd.exe` pair, not an `sh`/BEAM implementation I can push a value through. The finding therefore stays a medium-confidence, asserted-mechanism finding rather than being raised.
+
+## Dropped in re-review
+None. Every prior finding and ruled-out entry is retained; the only changes are (a) the batch-arg-injection sink moved from "asserted" to "verified by read" for the `mix.bat`/`elixir.bat` chain while the un-runnable injection behaviour stays asserted, and (b) the first-pass "out of scope for this file" scope hedge on `elixir.bat` is resolved by reading it. No dismissal was upgraded or downgraded, since no axis was executable for this file.

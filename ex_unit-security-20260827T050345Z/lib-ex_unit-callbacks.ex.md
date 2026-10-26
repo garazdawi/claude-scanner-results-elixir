@@ -1,0 +1,44 @@
+# /Users/lukas/code/claude-scanner/elixir/lib/ex_unit/lib/ex_unit/callbacks.ex
+<!-- sha256: e4f6b18fb6bd181ea78207d95717578fe7b0b4ba65ad6fb29eb06f2166645091 -->
+
+# /Users/lukas/code/claude-scanner/elixir/lib/ex_unit/lib/ex_unit/callbacks.ex
+<!-- sha256: e4f6b18fb6bd181ea78207d95717578fe7b0b4ba65ad6fb29eb06f2166645091 -->
+
+_Re-reviewed on 2026-08-27_
+
+Inventory unchanged from the first pass: exactly four `String.to_unsafe_atom/1` sinks (lines 295, 298, 431, 834), plus the `File.write!`/`File.rm!` at lines 490–491 which are text inside the `on_exit/2` `@doc` example string (documentation, not executable code). There is no `binary_to_term`, `Code.eval`, `System.cmd`, `Regex.compile`, `Path.*`, `Module.concat`, or `apply` in the file. This pass resolved the two "outside this file" hedges from the first report by reading the in-folder neighbour `ExUnit.OnExitHandler`.
+
+## Summary
+
+`ExUnit.Callbacks` defines the compile-time `setup`/`setup_all` macros and the runtime `on_exit/2`, `start_supervised/2`, and `stop_supervised/1` lifecycle helpers for ExUnit test modules. Every input to its documented public API is developer-authored test source (at compile time) or developer-supplied runtime arguments (child specs, ids, callbacks, refs); no untrusted external data (dependency payload, archive, network, serialized term, or read file) reaches any sink. I found no security defects, and the two cross-file forwards flagged as hedges in the first pass are now verified to reach no sink in the neighbour module either.
+
+## Security
+
+No findings
+
+### Ruled out
+
+- **`String.to_unsafe_atom/1` — atom creation (lines 295, 298, 431, 834).** This is `:erlang.binary_to_atom/2` with no existence check (verified against `/opt/elixir/lib/elixir/lib/string.ex:3040` in the first pass), so it is a genuine unbounded-atom primitive. But every call is fed an *internal* bounded counter — `"__ex_unit_setup_#{counter}_#{length(setup)}"` (295), `"__ex_unit_setup_#{length(setup)}"` (298), `"__ex_unit_setup_all_#{length(setup_all)}"` (431), `"__ex_unit_describe_#{map_size(used_describes)}"` (834) — never externally-derived bytes. They run only at compile time, once per `setup`/`setup_all`/`describe` declaration in the developer's own module, so the atom count is bounded by the source being compiled (self-inflicted, no privilege crossing). `to_unsafe_atom` is also the *correct* primitive here: these are freshly-minted function names that by construction do not yet exist, so `to_existing_atom/1` would fail. Confidence: high. Not a finding.
+- **`on_exit/2` → `ExUnit.OnExitHandler.add/3` forward (lines 513–521).** *Resolved from a first-pass hedge.* I read `on_exit_handler.ex:21–33`. `add(pid, name_or_ref, callback)` uses `name_or_ref` **only** as a `List.keystore/4` key at tuple position 0 (`{name_or_ref, callback}`); it is never atomized, never used as a module/function, and never deserialized. `callback` is stored in the ETS row and later invoked as `callback.()` in `exec_callback/1` (`on_exit_handler.ex:139–145`) inside a spawned, monitored runner with a `catch` around it — i.e. it is executed as the developer-supplied 0-arity closure that `on_exit/2`'s own guard (`is_function(callback, 0)`, line 513) already enforces. No string→atom, `binary_to_term`, code-eval, or path sink exists on this forward path. Confidence: high. Not a finding.
+- **`start_supervised/2` → `Supervisor.child_spec/2` + `start_child/2` (lines 581–582), and `stop_supervised/1` → `ExUnit.OnExitHandler.get_supervisor/1` (line 663).** *Resolved from a first-pass hedge.* `get_supervisor/1` (`on_exit_handler.ex:35–42`) is a pure `:ets.lookup_element` read of the caller's own supervisor pid wrapped in `try/rescue`; it introduces no sink. The child spec/module and its `:start` MFA passed to `Supervisor.child_spec/2`/`start_child/2` are developer-supplied test arguments handled by trusted Elixir stdlib; no string→atom conversion or term deserialization occurs in this file, and passing runtime data into a child's start function is the documented, intended use. Confidence: high. Not a finding.
+- **Compile-time macro codegen / `unquote` dispatch (`do_setup`, `do_setup_all`, `compile_setup_call` at 270–275, 408–413, 888–916).** Generated code calls `unquote(module).unquote(callback)(var!(context))`. The `module`/`callback` values come from the developer's `setup {Mod, :fun}` / `setup :fun` calls and are validated to be atoms by `validate_callbacks!/1` (443–459) and `__callback__/2` (714–725). This is the developer's own AST expanded into their own test module — no external input crosses into it. Confidence: high.
+- **`Macro.to_string/1` in error messages (lines 264, 402).** Runs at compile time on the developer's own malformed `setup/2`/`setup_all/2` block, only on the raise path. A pathological crash here would be a self-inflicted compile error, not an attacker-reachable condition. Confidence: high.
+- **`Map.merge/3` context merge with reserved-key guard (`context_merge`, 756–764).** Merged data is a setup callback's return value (developer code). The `@reserved` guard (711) is a test-metadata integrity check, not a safety predicate on untrusted input; there is no attacker whose input reaches it. Confidence: high.
+- **`stop_supervised/1` check-then-act (662–684): `which_children` → `keyfind` → `unlink` → `terminate_child` → `delete_child`.** A TOCTOU exists in principle, but the sole caller is the single test process operating on its own supervisor with a developer-chosen `id`; no concurrent adversary shares this boundary. Confidence: high.
+- **`File.write!`/`File.rm!` at lines 490–491.** Inside the `on_exit/2` `@doc` example string — documentation text, not executable code. Confidence: high.
+- **Defensive checks — all reachable, none security-load-bearing.** `validate_callbacks!/1` invalid clause (452); `__callback__` non-atom raise (716–720); `no_describe!/1` (436–441); the describe name checks (789–799); `unwrapped_merge` struct rejection (740); the `start_supervised_error/1` clauses (606–612). Each is reachable via ordinary developer misuse of the documented macros and raises a clear error. None is dead defensive code, and none guards a trust boundary that untrusted data crosses. Confidence: high.
+
+## Risks / caveats
+
+- My conclusion rests on the folder's trust model: ExUnit executes trusted, developer-authored test code in-process, and this file's inputs are that source (at build time) plus runtime arguments the test itself supplies. There is no documented public API in this file that ingests a network payload, an archive entry, a serialized term, or the contents of a file a project merely reads — the only way untrusted data could reach the atom-creation sites. If a future caller wired one of these macros to externally-controlled module/function names, the `to_unsafe_atom` sites would become a genuine atom-exhaustion vector worth revisiting.
+- The ETS table `add/3` and `get_supervisor/1` operate on is `ExUnit.Server` (public), owned by `ExUnit.Server` per the folder threat model. That table's creation/ownership and any cross-tenant ETS concerns belong to `server.ex`/`on_exit_handler.ex` reviews; within `callbacks.ex` the only interaction is forwarding the caller's own pid and its own `name_or_ref`/`callback`, which I traced into `on_exit_handler.ex` and confirmed reach no sink.
+
+## Did I verify this?
+
+- **Verified (read):** `String.to_unsafe_atom/1` creates atoms unconditionally (first-pass read of `string.ex:3040`) and all four call sites are fed only bounded internal counters — re-confirmed by reading lines 292–299, 431, 834 of this file.
+- **Verified (read neighbour) — clears the two first-pass hedges:** `ExUnit.OnExitHandler.add/3` (`on_exit_handler.ex:21–33`) uses `name_or_ref` only as a keystore key and never atomizes/deserializes it; the stored `callback` is executed as a guarded 0-arity closure (`exec_callback/1`, 139–145). `get_supervisor/1` (35–42) is a pure ETS read. Neither introduces a sink reachable from `callbacks.ex` inputs.
+- **Not independently executed:** I did not run Erlang/OTP to trigger any behaviour, because there are no `Axes examined / Not examined` ruled-out entries in this file — every dismissal rests on a trust-boundary/data-flow argument, not on two implementations disagreeing over an untried input axis. There is accordingly no axis to "try"; the confidence on each ruled-out entry is from reading the code paths end to end within this file and its one in-folder neighbour.
+
+## Dropped in re-review
+
+None. Both first-pass hedges were caveats attached to an otherwise no-finding report; I upgraded neither to a finding because reading the in-folder neighbour `ExUnit.OnExitHandler` confirmed the forwarded values reach no sink. No prior finding existed to drop, and no assumption required upgrading to a low-confidence finding.

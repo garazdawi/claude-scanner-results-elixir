@@ -1,0 +1,69 @@
+# Elixir Bugfix Scan — Ranked Summary
+
+Scan folder: `elixir-bugs-20260827T211546Z` (Elixir 1.21.0-dev / OTP 29, tree `3389f8405`). No `VALIDATION.md` was present; per-file reports carry their own `verified`/`asserted` evidence verdicts, and cross-file/cluster findings were weighed first per the priority order. Overlapping cluster⇄per-file findings are merged and reported once. All findings below are surviving (not dropped/ruled-out); dismissals and coverage-gap ledger rows are excluded.
+
+## Tier 1 — Critical / High (verified, real code defects)
+
+1. **Bitstring size-expression calls dropped by the type checker — valid macros become fatal `CompileError`** · `lib/module/types/traverse.ex` · `CSCAN-traverse-bitstring-specifier-calls-dropped` · **Critical**, high, verified. `of_expr` never traverses the *specifier* side of a bitstring segment, so a local function used inside a size expression (e.g. `<<x::size(helper())>>`) is seen as never-called. On the `:traverse` path that every macro compilation uses, this misclassifies correct code and aborts with `undefined function`. Broadest blast radius of the scan.
+
+2. **`Inspect` for `HashDict`/`HashSet` splices a `{doc, opts}` two-tuple into `concat` → `FunctionClauseError`** · cross-file (`hash_dict.ex`/`hash_set.ex` ⇄ `inspect.ex` ⇄ `inspect/algebra.ex`) · `CSCAN-cluster-inspect-list-two-tuple-return` · **High**, high. `Inspect.List.inspect/2` returns a two-tuple for non-empty lists, but both impls feed that straight into `concat/1`, which rejects the tuple — every non-empty `HashDict`/`HashSet` crashes on inspect. Only visible by reading the three files together.
+
+3. **`HashDict` protocol atoms missing the `Elixir.` prefix → all ops crash** · `lib/hash_dict.ex` · `CSCAN-hash_dict-protocol-module-atom-missing-elixir-prefix` · **High**, high, verified. Impls build `:HashDict` instead of `:"Elixir.HashDict"`, so every `Enumerable`/`Collectable`/`Inspect` operation raises `UndefinedFunctionError`.
+
+4. **`HashSet` same missing-`Elixir.`-prefix defect** · `lib/hash_set.ex` · `CSCAN-hash_set-unsafe-atom-missing-elixir-prefix` · **High**, high, verified. All `Enum`/`Stream`/`into`/`inspect` operations on a `HashSet` crash with `UndefinedFunctionError`. (Findings 2–4 together mean these two legacy collections are effectively non-functional.)
+
+5. **`Registry.lock/3` uses the default 5 s `GenServer.call` timeout instead of `:infinity`** · `lib/registry.ex:1854` · `CSCAN-registry-lock-call-timeout` · **High**, high, verified (reproduced). Any contender waiting on a critical section that runs longer than 5 s crashes with a `:timeout` exit — the lock silently fails under exactly the contention it exists to serialize.
+
+6. **Malformed bitstring size/unit spec → raw `MatchError`** · `elixir_bitstring.erl` · `CSCAN-elixir_bitstring-build-spec-empty-badmatch` · **High**, high, verified (executed). An invalid integer/float spec (e.g. `<<1.0::float-size(8)>>`) makes `build_spec` return `[]`, hitting an unguarded `[H|T] =` match; the internal crash truncates the rest of the compiler's error reporting after the clean diagnostic.
+
+7. **Unclosed inline `<!--` crashes `IO.ANSI.Docs.print/3` (IEx `h`)** · `lib/io/ansi/docs.ex` · `CSCAN-docs-inline-comment-matcherror` · **High**, high, verified. `drop_comment/1` assumes a 2-element split, so malformed markdown in a docstring crashes `h Mod` with a `MatchError` instead of rendering.
+
+8. **`Code.Fragment.container_cursor_to_quoted/2` silently drops `:file`/`:line`/`:column`** · `lib/code/fragment.ex` · `CSCAN-fragment-cctq-drops-file-line-column-opts` · **High**, high, verified. Documented positioning options are stripped before use, so returned AST is always anchored at line 1 / column 1 — breaks tooling that relies on real positions.
+
+9. **`scripts/diff.exs` crashes on any nested build tree** · `CSCAN-diff-file-dir-relative-path` · **High**, high, verified. `compare_dirs/2` calls `File.dir?/1` on paths resolved against cwd rather than `dir1`, so subdirectory entries survive the reject and crash with `File.Error :eisdir`. Dev/release tooling, not shipped runtime.
+
+## Tier 2 — Medium (verified)
+
+10. **Repeated literal map key in a *match* aborts the whole compile instead of taint-and-continue** · cross-file (`elixir_map.erl:96` ⇄ `elixir_errors.erl`) · `CSCAN-cluster-map-repeated-key-passes-file-not-env` / `CSCAN-elixir_map-repeated-key-passes-file-not-env` · **Medium**, high, verified. The call passes the file binary instead of env `E`, converting a recoverable `function_error` into a fatal, immediately-raising `file_error`, so only the first duplicate key is reported and every other diagnostic in the file is suppressed.
+
+11. **Bidi classifier omits the Arabic-Number class → weakened Trojan-Source / confusable detection** · cross-file (`unicode/tokenizer.ex` ⇄ `unicode/security.ex`) · `CSCAN-cluster-bidi-dir-omits-arabic-number-class` (+ per-file `CSCAN-tokenizer-dir-nonascii-digit-weak`, `CSCAN-security-unbidify-number-run-reversed`) · **Medium**, medium/high, verified. `dir/1` classifies only ASCII `48..57` as `:weak_number`; Arabic-Indic digits (bidi class `AN`, valid identifier chars) fall through to `:ltr` and terminate/reverse RTL runs, and `unbidify/1` additionally misses the UAX #9 L2 second reversal for multi-digit numbers. The resulting bidi skeleton diverges from display order, so confusable/Trojan-Source pairs can silently escape the (warning-only) lint. Security-relevant.
+
+12. **`DateTime.from_map/1` drops `:calendar` → silent data corruption** · `lib/calendar/datetime.ex` · `CSCAN-datetime-from-map-drops-calendar` · **Medium**, high, verified. `convert/2` and `truncate/2` coerce non-ISO datetimes to `Calendar.ISO` while keeping the original calendar's numeric fields.
+
+13. **`Dict.empty/1` delegates to a nonexistent function** · `lib/dict.ex` · `CSCAN-dict-empty-undefined-delegate` · **Medium**, high, verified. Delegates to `Map.empty/1`/`Keyword.empty/1`, which don't exist — every call raises `UndefinedFunctionError`.
+
+14. **`Macro.pipe/3` emits structurally invalid AST for `Access.get`** · `lib/macro.ex` · `CSCAN-macro-pipe-access-get-malformed-ast` · **Medium**, high, verified. Captures the arg list instead of the whole `.` node; piping into an alias-expanded `Access.get` later fails to compile with an opaque error.
+
+15. **`Stream.chunk/3` forwards `nil` leftover → opaque crash on uneven input** · `lib/stream.ex` · `CSCAN-stream-chunk3-nil-leftover` · **Medium**, high, verified. Passes `nil` instead of `:discard`, so any input that doesn't divide evenly crashes with `Protocol.UndefinedError` on `nil` rather than discarding the trailing partial chunk.
+
+16. **`Regex.replace/4` crashes on non-numeric `\g{...}`** · `lib/regex.ex` · `CSCAN-regex-g-brace-nonnumeric-crash` · **Medium**, high, verified. `\g{name}`, `\g{}`, `\g{1` raise an unhandled `MatchError`/`ArgumentError` naming nothing actionable.
+
+17. **`PartitionSupervisor.which_children/1` returns an out-of-spec `:undefined` after downscale** · `lib/partition_supervisor.ex` · `CSCAN-partition_supervisor-which-children-undefined-shape` · **Medium**, high, verified. Terminated partitions report `:undefined`, a shape absent from the `@spec`/`@doc` (`pid | :restarting`); callers may treat it as a live PID and crash downstream.
+
+18. **`scripts/docs_config.exs` crashes on any non-semver git tag** · `CSCAN-docs_config-tag-parse-crash` · **Medium**, high, verified. Unguarded `Version.parse!` on a `v`-prefixed tag (e.g. `vnext`, `v1.16`) aborts docs-config generation.
+
+19. **Invalid codepoint in interpolated charlist → `case_clause`** · `elixir_interpolation.erl` · `CSCAN-elixir_interpolation-gc-error-case-clause` · **Medium**, medium, asserted. `extract_char/8` omits the `{error, Rest}` return of `unicode_util:gc/1`, raising `case_clause` instead of a located error.
+
+## Tier 3 — Low (verified, notable)
+
+- **`Application.compile_env/3` descending past a scalar leaf crashes instead of returning the default** · cross-file (`application.ex` ⇄ `access.ex`) · `CSCAN-cluster-compile-env-access-fetch-scalar-crash` / `CSCAN-application-compile-env-path-scalar-crash` · Low, high. `Access.fetch/2` is partial for scalars; a config path one level past a scalar raises `FunctionClauseError`, aborting the build uninformatively.
+- **`Code.fetch_docs` uses `binary_to_term` without `:safe` on untrusted `.beam`** · `lib/code.ex` · `CSCAN-code-fetch-docs-unsafe-binary-to-term` · Low, security — atom-table exhaustion / DoS from a malicious file.
+- **`import ErlangModule, only: :sigils` crashes the compile with `undef`** · `elixir_import.erl` · `CSCAN-elixir_import-sigil-path-missing-undef-fallback` · Low, high — the sigil path lacks the graceful fallback the `:functions`/`:macros` paths have.
+- **`URI.decode_query/3` deprecated struct path fully broken** · `lib/uri.ex` · `CSCAN-uri-decode-query-dict-wrong-atom` · Low, high — builds `:Dict` (nonexistent module) → `UndefinedFunctionError` on every call.
+- **`File.stream!(path, [:trim_bom])` corrupts first record for UTF-32LE** · `lib/file/stream.ex` · `CSCAN-stream-utf32le-bom-mislength` · Low, high — BOM mislengthed as 2 bytes leaves `<<0,0>>` prepended.
+- **`Kernel.LexicalTracker.warn_import/2` crashes tracker on a module never `add_import`-ed** · `lib/kernel/lexical_tracker.ex` · `CSCAN-lexical_tracker-warn-import-nil-imports` · Low, medium — `put_in` on `nil` kills the gen_server and aborts compilation.
+- **`File.cp_r/3` onto same source returns `{:ok, …}` instead of `:einval`** · `lib/file.ex` · `CSCAN-file-cp_r-einval-same-as-source` · Low, high.
+- **`GenEvent.notify/2` to an unregistered atom name raises `:badarg`** · `lib/gen_event.ex` · Low — breaks the fire-and-forget `:: :ok` contract.
+- **Exotic-shape / robustness crashes** with opaque exceptions instead of clear errors: `elixir_bitstring.erl` `unpack_specs` `if_clause` on malformed macro specs; `elixir_tokenizer.erl` atom byte-vs-codepoint length limit; `Tuple.insert_at`/`delete_at` negative-index `FunctionClauseError` vs documented `ArgumentError`; `Process.register/2` reserved-name `FunctionClauseError`; `Path.join("foo", ~c"/")` yields `"foo/."`; `Task.Supervisor.async_stream` rejects `shutdown: :infinity`; `Behaviour.__behaviour__(:docs)` `MatchError`; `DateTime.from_unix!/3` / `NaiveDateTime.new/2` opaque case/function-clause; `IO.read(device, :all)` return-type mismatch; `Code.compiler_options/1` cryptic error.
+
+## Tier 4 — Low (spec / doc / cosmetic)
+
+A cluster of verified but low-impact defects: incorrect/contradictory `@spec`/`@doc` return shapes (`elixir_erl_compiler` `nowarn_nomatch` ignored; `module/types/descr` & `module/types/of` doc-vs-code return mismatch; `module/parallel_checker` `fetch_export` spec too narrow; `Function.info/2` `:pid` key; `io/ansi/docs` `print_metadata` returns `false`), doctest/example drift (`Kernel.and/or` stale error message; `IO.ANSI.syntax_colors` doc missing comma; `Record` age-default mismatch; `Config.config/3` doc order), and formatting/rendering fidelity issues (`inspect/algebra` improper-tail `:limit` off-by-one; `io/ansi/docs` truecolor width miscount and post-comment formatting reset; `Keyword.validate` duplicate error keys; `Keyword.get_and_update!` reversed `:term`). These are code-quality/diagnostics regressions, not runtime hazards.
+
+## Cross-file notes (not defects)
+
+- **`CSCAN-crossfile-lexicaltracker-exists`** (Low): a *confidence-basis correction*, not a new bug — `elixir_lexical.erl`'s three low-confidence findings were held down on the false premise that `Kernel.LexicalTracker` is "absent from the checkout"; `lib/kernel/lexical_tracker.ex` is in the review set, so those findings should be re-evaluated against the real API.
+- **Contradicted/Unresolved ledger**: the `elixir_lexical.erl` "module absent" row is the sole **Contradicted** entry. The remaining Unresolved rows are coverage gaps, not defects — a recurring `elixir_module ↔ elixir_def ↔ elixir_overridable ↔ elixir_import` "single-compile-process owns `{Set,Bag}`" invariant that is only *asserted* (never `verified`) anywhere in the chain, plus out-of-set OTP/header/generated-file dependencies (`kernel/file`, OTP BIF & warning atoms, `user_drv`, generated `elixir_parser.erl`, `elixir.hrl`) with no report to resolve against. Worth a targeted follow-up to close the compiler-state ownership invariant.
+
+### Suggested action order
+Fix the four Tier-1 correctness crashes first (the traverse/bitstring type-checker regression #1 is the highest-leverage; the `HashDict`/`HashSet` trio #2–#4 fully break those collections; `Registry.lock` #5 is a silent concurrency failure), then the compiler diagnostic-truncation bugs (#6, #10) and the security-relevant bidi gap (#11).

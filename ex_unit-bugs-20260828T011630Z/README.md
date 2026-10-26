@@ -1,0 +1,56 @@
+# ExUnit Bugfix Scan — Ranked Summary
+
+Scan of `elixir/lib/ex_unit`. No `VALIDATION.md` present, so every finding below is carried at its report-stated confidence (most are `verified` by execution). CROSS_FILE.md promoted no findings; the cross-file signal is the two CLUSTER reports. Ranked most-impactful first.
+
+## 1. `--max-failures` counts excluded/skipped tests, aborting the suite early (cross-file) — Medium
+`CSCAN-cluster-max-failures-counts-excluded-tests` (CLUSTER_lib-ex_unit-1; `runner.ex:559-561` × `runner_stats.ex`). When a module's `setup_all` fails, `process_max_failures` bumps the shared failure counter by `length(test_module.tests)` — the **full** compiled list — but only the `to_run` subset is ever reported as failed; excluded/skipped tests were already reported separately. So excluded tests count against `--max-failures`. Repro: two modules each with 1 excluded + 1 real test, both `setup_all` failing, `--max-failures=2` — the limit is reached after only **one** real failure, and the second module is suppressed as `:surpassed`. The suite silently aborts a genuine failure early. High confidence; only surfaced by cross-referencing that `TestModule.tests` is unfiltered and that `failure_counter` is the shared suite gate. Fix: bump by `length(invalid_tests)`.
+
+## 2. Passing tests in a failed module are dropped from the failures manifest — Medium
+`CSCAN-runner_stats-failed-module-manifest-omits-passed-tests` (`runner_stats.ex:99`). When `setup_all`/module teardown fails *after* tests already passed (`state: nil`), those tests are bumped into the on-screen `failures` count but written to the manifest via `put_test` with a `nil` state — which `FailuresManifest.put_test/2` treats as *passing* and therefore **deletes** the entry. Net: ExUnit reports N failures, but the next `mix test --failed` re-runs fewer than N, silently skipping tests it just called failures. Verified via the GenServer's documented casts. Fix: record with `%{test | state: test_module.state}`.
+
+## 3. `setup`/`setup_all` with a list of atom-module `{mod, fun}` tuples fails to compile — Medium
+`CSCAN-callbacks-setup-atom-mod-tuple-list-as-block` (`callbacks.ex:236-244`, `376-384`). The documented "list of `{module, function}` tuples" form is dispatched via `Keyword.keyword?/1`. When every module is a plain atom (e.g. `:crypto`, or `defmodule :my_mod`), the AST list *is* a keyword list, so it's misrouted to the `do`-block branch, yielding a baffling `missing :do option in "defp"` compile error that names neither the cause nor the offending line. Aliased-module lists and single tuples work, masking how narrow the break is. Verified. Fix: gate the block branch on the presence of a `:do` key, not mere keyword-ness.
+
+## 4. `doctest_file/2` attributes every doctest one line too high — Medium
+`CSCAN-doc_test-doctest-file-line-off-by-one` (`doc_test.ex:303` + `831`). `__doctest_file__/3` passes a base of `1` for a file whose content begins on line 1, but `extract_tests` internally adds `line_no + 1`, double-counting. Every doctest extracted from a markdown file via the public `doctest_file/2` macro (since 1.15) reports failures one line below their real position, sending developers to the wrong line. Verified end-to-end (`iex>` on file line 1 reported at `:2`). Fix: pass base `0`.
+
+## 5. Reserved-context guard protects a phantom key and lets `:module` be silently overwritten (cross-file) — Low
+`CSCAN-cluster-reserved-context-keys-diverge` (CLUSTER_lib-ex_unit-0; `callbacks.ex:711` vs `case.ex:351`). `callbacks.ex`'s `@reserved` list guards `:case` — a key the runner never places in the context (it builds `:module`, per `runner.ex:293,322`) — and omits `:module`. So a `setup`/`setup_all` returning `%{module: ...}` silently clobbers the framework-set context entry, the exact clobbering the reserved check exists to prevent, while the guard defends dead code. High confidence. Fix: replace `:case` with `:module` in the callbacks list.
+
+## 6. `FailuresManifest.info/1` crashes the whole run on a non-map manifest payload — Low (elevated blast radius)
+`CSCAN-failures_manifest-info-caseclause-noncatchall` (`failures_manifest.ex:55-68`). A manifest decoding to `{1, X}` with `X` neither map nor `:all` raises `CaseClauseError` — and `info/1` runs at suite start to decide reruns, so the crash aborts before any test executes. The sibling `read/1` reading the same bytes degrades to `%{}`, proving graceful handling was intended. Reaching it needs a crafted/tampered manifest (natural truncation fails `binary_to_term` benignly), hence Low. Fix: add a catch-all clause.
+
+## 7. `ExUnit.Filters.parse/1` crashes on a non-integer `line:` filter — Low
+`CSCAN-filters-parse-line-noninteger-crash` (`filters.ex:143-144`). `mix test`-style input like `line:abc` raises a raw `ArgumentError` from `binary_to_integer` mid-`Enum.map`, aborting the whole filter parse with a trace that never names the bad filter — inconsistent with the sibling file-path line handling that `IO.warn`s gracefully. Verified. Fix: use `Integer.parse/1` and degrade gracefully.
+
+## 8. `capture_io(pid, fun)` leaks a `StringIO` process when the target pid is dead — Low (medium confidence)
+`CSCAN-capture_io-stringio-leak-on-gl-set-failure` (`capture_io.ex:271-287`). The capture device is opened before the `try`; if `Process.group_leader(pid, capture_gl)` raises (dead pid), the device is never closed — the `after` restores the GL but doesn't close it. A suite repeatedly capturing short-lived worker pids accumulates leaked processes, with only an opaque `argument error`. Verified `proc delta: 1`. Fix: close the device when GL hand-off fails.
+
+## 9. `catch_throw`/`catch_exit`/`catch_error` compile-crash on a list literal — Low
+`CSCAN-assertions-do-catch-list-expr-crash` (`assertions.ex:982` + `mark_as_generated` 754-759). `catch_throw([1,2])` matches the `is_list` clause of `mark_as_generated`, which expects `{name,meta,ctx}` triples, crashing compilation with an internal `FunctionClauseError` pointing at ExUnit internals. The common call-that-throws form (a 3-tuple AST) is unaffected. Verified. Fix: don't route the expression through the variable-list helper.
+
+## 10. `trace/3` `{:receive, match_spec}` double-wraps the spec and raises at runtime — Low
+`CSCAN-assertions-trace-receive-spec-double-wrap` (`assertions.ex:1132-1149`). The documented `{:receive, match_specification}` flag (new in 1.21) is accumulated into a list and handed to `:trace.recv/3`, producing `(uncheckable memory citation: ...)` — rejected as "invalid match specification". The documented usage is unusable; only the undocumented single-clause tuple form works. Verified at the `:trace.recv/3` boundary. Fix: reconcile code and docs.
+
+## 11. `--dry-run` lists tests in reverse execution order — Low
+`CSCAN-runner-dry-run-reversed-order` (`runner.ex:315-317`). The dry-run clause returns tests forward, but the shared `Enum.reverse` in `run_module/5` then flips them, so the "tests that would run" preview is the exact reverse of real order. Purely informational. Verified on a byte-identical toolchain (real order 4,5,6 vs dry-run 6,5,4). Fix: return the list pre-reversed.
+
+## 12. Doctest line-number off-by-N for ≥3-line expressions with an expected result — Low
+`CSCAN-doc_test-expected-line-nested-iodata-length` (`doc_test.ex:905`). `length(expr_lines)` counts top-level cells of *nested* iodata, not lines, saturating at 2 — so `expected_line` is off by `k−2` for a k-line expression, misplacing the reported line when the expected expression fails to compile/raises. Verified (off by 2 on a 4-line expr).
+
+## 13. Malformed doctest exception line crashes with a raw `MatchError` — Low
+`CSCAN-doc_test-malformed-exception-matcherror` (`doc_test.ex:918`). An expected line starting `** (` but missing the closing `)` (a realistic typo) hits `[mod, message] = :binary.split(...)` with a one-element list, raising a bare `MatchError` with no file/line — bypassing the author-friendly `DocTest.Error` path. Verified. Fix: match defensively and raise a `DocTest.Error`.
+
+## 14. `cli_formatter` colors a clean pass yellow when passed-count equals excluded-count — Low (cosmetic)
+`CSCAN-cli_formatter-excluded-eq-passed-miscolor` (`cli_formatter.ex:415`). The third `cond` clause `config.excluded_counter == test_counter` fires whenever `passed == excluded` (since excluded tests never increment `test_counter`), painting a fully-passing summary in the yellow "invalid" color. Text is always numerically correct; only the color misleads. Verified (`1p1e`→yellow, `2p1e`→green). Fix: delete the clause or test `test_counter == 0 && excluded_counter > 0`.
+
+## 15. `Filters` `@type location` too narrow for the mixed list `parse_paths/1` returns — Low
+`CSCAN-filters-parse-paths-location-type-too-narrow` (`filters.ex:11-13`). When some paths carry a line number and others don't, the result mixes `{:location, {path, line}}` and bare `{:location, path}` entries, but the declared type admits only the former — so Dialyzer analyzes callers against an incomplete contract. Verified. Fix: widen the type.
+
+## 16. `on_exit_handler` timeout branch leaks a monitor — Low (low confidence, `asserted`)
+`CSCAN-on_exit_handler-supervisor-timeout-monitor-leak` (`on_exit_handler.ex:61-70`). If the per-test supervisor exceeds its shutdown `timeout`, `terminate_supervisor/2` returns the error tuple without `demonitor`ing, leaving a live monitor whose later `:DOWN` lingers unconsumed in the Runner mailbox. Harmless (no result corrupted), and only `asserted` — the trigger wasn't constructed. Fix: `Process.demonitor(ref, [:flush])` before returning.
+
+---
+
+### Coverage notes (from CROSS_FILE.md — not findings)
+The dependency ledger recorded several **Unresolved** invariants — nobody verified them, so they're coverage gaps, not defects: `__describe__/3,4` delegation from `case.ex`; the exhaustive `test.state` shape set feeding `runner_stats`; the exactly-once-per-pid `OnExitHandler.run` `:ets.take` contract from `runner.ex`; the `EventManager` internal cast/`stop` `:noproc` race; `capture_server.log/2`'s `:logger` drain path; and `mix.exs` default env values vs their consumers. No report contradicts another. Files with **no** surviving findings: `capture_log`, `capture_server`, `case`, `case_template`, `diff`, `event_manager`, `formatter`, `on_exit_handler-supervisor`, `server`, `ex_unit`, `mix.exs`, and both example scripts.

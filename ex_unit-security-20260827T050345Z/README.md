@@ -7,7 +7,7 @@
 ---
 
 ## 1. Unsafe `binary_to_term` on the failures manifest — **Medium** (high confidence)
-`CSCAN-failures_manifest-unsafe-binary-to-term` · `failures_manifest.ex:71` (`safe_binary_to_term/1`, reached from `read/1`:47 and `info/1`:57)
+[`CSCAN-failures_manifest-unsafe-binary-to-term`](./lib-ex_unit-failures_manifest.ex.md#cscan-failures_manifest-unsafe-binary-to-term) · `failures_manifest.ex:71` (`safe_binary_to_term/1`, reached from `read/1`:47 and `info/1`:57)
 
 The `mix test --failed` manifest is decoded with `:erlang.binary_to_term/1` **without `[:safe]`**. Despite the name, the wrapper only `rescue`s `ArgumentError` — it does nothing to stop the decode from **minting arbitrary atoms, funs, pids and refs**. Critically, the decode runs to completion *before* the `{@manifest_vsn, %{} = manifest}` shape check, so the version/shape "validation" is not a guard (`:safe` is). Reached on **every `mix test`** via `ExUnit.RunnerStats` on `:suite_started` whenever `:failures_manifest_path` is configured (Mix's default).
 
@@ -19,7 +19,7 @@ The `mix test --failed` manifest is decoded with `:erlang.binary_to_term/1` **wi
 ---
 
 ## 2. Exponential-time list-diff blow-up — **Low** (high confidence)
-`CSCAN-diff-nested-list-exponential-rediff` · `diff.ex:644` (`list_script_to_diff/6`) + `diff.ex:606` (`follow_snake/1`)
+[`CSCAN-diff-nested-list-exponential-rediff`](./lib-ex_unit-diff.ex.md#cscan-diff-nested-list-exponential-rediff) · `diff.ex:644` (`list_script_to_diff/6`) + `diff.ex:606` (`follow_snake/1`)
 
 When two lists are diffed, each *unequal* element pair is diffed twice and the first result is discarded rather than memoised; for nested lists this compounds to ≈2^depth cost. Specific to the list path (tuples/maps diff each element once).
 
@@ -30,7 +30,7 @@ When two lists are diffed, each *unequal* element pair is diffed twice and the f
 ---
 
 ## 3. Linked diff `Task` crash kills the shared formatter — **Low** (high confidence)
-`CSCAN-formatter-find-diff-linked-task-crash` · `formatter.ex:558-565` (`find_diff/2`)
+[`CSCAN-formatter-find-diff-linked-task-crash`](./lib-ex_unit-formatter.ex.md#cscan-formatter-find-diff-linked-task-crash) · `formatter.ex:558-565` (`find_diff/2`)
 
 The diff runs in a **linked** `Task.async(Diff, :compute, …)`. If `Diff.compute` exits abnormally, the link propagates the exit and kills the caller **uncatchably** (a surrounding `try/rescue/catch` cannot intercept a link exit); if the caller traps exits, `Task.yield` returns `{:exit, reason}`, which matches neither `case` branch → `CaseClauseError`. The 1500 ms timeout contains *slowness*, not *crashes*.
 
@@ -43,7 +43,7 @@ The diff runs in a **linked** `Task.async(Diff, :compute, …)`. If `Diff.comput
 ---
 
 ## 4. Unbounded atom creation from doctest exception names — **Low** (high confidence)
-`CSCAN-doc_test-module-concat-atom-creation` · `doc_test.ex:919` (`tag_expected/1`)
+[`CSCAN-doc_test-module-concat-atom-creation`](./lib-ex_unit-doc_test.ex.md#cscan-doc_test-module-concat-atom-creation) · `doc_test.ex:919` (`tag_expected/1`)
 
 A doctest expected-output line starting with `** (` has the text up to the first `)` passed verbatim to `Module.concat([mod])`, which mints a fresh atom per distinct name (unlike `Module.safe_concat`), unbounded and un-length-checked; names >255 bytes raise `SystemLimitError` at compile time (CWE-770). All at *compile time* of the test module.
 
@@ -55,7 +55,7 @@ A doctest expected-output line starting with `** (` has the text up to the first
 ---
 
 ## 5. Atom creation from filter keys — **Low** (high confidence)
-`CSCAN-filters-cli-key-atom-creation` · `filters.ex:137-138` (`parse/1`)
+[`CSCAN-filters-cli-key-atom-creation`](./lib-ex_unit-filters.ex.md#cscan-filters-cli-key-atom-creation) · `filters.ex:137-138` (`parse/1`)
 
 `parse/1` converts every filter *key* from a raw string via `String.to_unsafe_atom/1` (= `binary_to_atom/2`), an unchecked non-existing-atom creation; each distinct key mints a permanent, never-GC'd atom (CWE-770).
 

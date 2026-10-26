@@ -9,7 +9,7 @@
 ## Ranked findings
 
 ### 1. Atom-table exhaustion via `EEx.tokenize/2` — **Medium** (verified, high confidence)
-`compiler.ex:83` · `CSCAN-compiler-tokenize-atom-exhaustion` · CWE-770
+`compiler.ex:83` · [`CSCAN-compiler-tokenize-atom-exhaustion`](./lib-eex-compiler.ex.md#cscan-compiler-tokenize-atom-exhaustion) · CWE-770
 
 For every `<%…%>` tag, the classifier runs the full Elixir tokenizer over the tag body with default options purely to label it start/middle/end/plain. Classification only inspects fixed keyword token *types* (`:do`, `:end`, `:stab_op`, `:fn`, …), but the default-options tokenizer **interns a permanent, never-GC'd atom for every identifier, alias, and `:atom` literal** as a side effect. This runs inside `EEx.tokenize/2` — the one public, documented entry point that does *not* compile or evaluate the template.
 

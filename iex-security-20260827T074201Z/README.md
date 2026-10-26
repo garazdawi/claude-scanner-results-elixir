@@ -7,7 +7,7 @@
 ---
 
 ## 1. HIGH — Editor OS command injection → RCE (`introspection.ex`)
-`CSCAN-introspection-editor-os-cmd-injection` · **High / high confidence · verified end-to-end**
+[`CSCAN-introspection-editor-os-cmd-injection`](./lib-iex-introspection.ex.md#cscan-introspection-editor-os-cmd-injection) · **High / high confidence · verified end-to-end**
 
 `IEx.Introspection.open_location/2` (`introspection.ex:172`, reached from `open/1`) builds an editor command by string interpolation and escapes the file path with **`inspect/1`** — which is Elixir string-quoting, **not shell-quoting**. It then runs the string through `:os.cmd/1` → `/bin/sh -c`, so backticks and `$()` inside the path fire as command substitution. Crucially the path is **not caller-typed only**: `open(module)` derives it from `module.module_info(:compile)[:source]`, the compile-time source path baked into the `.beam`. A dependency shipping a source file legally named `` evil`cmd`.ex `` / `evil$(cmd).ex`, or a forged BEAM with a crafted `:source` attribute plus a matching on-disk file, turns the routine `open(SomeModule)` into **arbitrary OS command execution on the developer's machine** — no execution of the target module's own code required, only `EDITOR`/`ELIXIR_EDITOR` set (near-universal).
 
@@ -16,20 +16,20 @@ Reproduced on disk both directly (`open_location/2`, marker file created) and en
 ---
 
 ## 2. MEDIUM — Destructive code-unload from an untrusted message (`mix_listener.ex`)
-`CSCAN-mix_listener-untrusted-code-purge` · **Medium / medium confidence · sink verified, reachability asserted**
+[`CSCAN-mix_listener-untrusted-code-purge`](./lib-iex-mix_listener.ex.md#cscan-mix_listener-untrusted-code-purge) · **Medium / medium confidence · sink verified, reachability asserted**
 
 `IEx.MixListener.handle_info({:modules_compiled, info}, …)` (`:45-63`) treats the whole `info` map as authoritative; its only gate is `info.os_pid == System.pid()`, a plain string compare an attacker sets to any value. It then feeds `info.modules_diff.changed/.removed` into `purge_modules/1`, which runs `:code.purge` + `:code.delete` on every named module. **Verified by execution:** an off-`os_pid` message unloads arbitrary in-memory modules (→ `UndefinedFunctionError`), and a double-purge kills any process running a targeted module — a repeatable DoS. Not RCE (payload is a non-executable term).
 
 The load-bearing premise — that an *untrusted / cross-user* peer can deliver this message — lives in the `Mix.Sync.PubSub`/`Mix.PubSub` transport, which is **absent from this checkout**, so it is *asserted, not verified* (this is why it is Medium, not High, and appears as an **Unresolved** row in the cross-file ledger). Exposure is developer/shared-build-host only: `IEx.App` does **not** supervise `MixListener` (it's started by `iex -S mix`).
 
-- **Companion (Low / high confidence · verified):** `CSCAN-mix_listener-malformed-diff-crash` — a malformed `modules_diff` (missing `:changed`/`:removed`, non-map, missing `:os_pid`) raises `MatchError`/`KeyError` past the catch-all and kills the GenServer at will. Escalation past `:one_for_one` restart intensity is asserted (supervisor absent).
+- **Companion (Low / high confidence · verified):** [`CSCAN-mix_listener-malformed-diff-crash`](./lib-iex-mix_listener.ex.md#cscan-mix_listener-malformed-diff-crash) — a malformed `modules_diff` (missing `:changed`/`:removed`, non-map, missing `:os_pid`) raises `MatchError`/`KeyError` past the catch-all and kills the GenServer at will. Escalation past `:one_for_one` restart intensity is asserted (supervisor absent).
 
 **Fix (in-file defense-in-depth):** drop any module whose `:code.which/1` path is outside the project's build path before purging; durable fix is authenticating the PubSub transport and decoding with `[:safe]`.
 
 ---
 
 ## 3. LOW — Pry-consent bypass during shell boot (cross-file: `server.ex` + `pry.ex` + `broker.ex`)
-`CSCAN-cluster-shell-boot-pry-consent-bypass` (CLUSTER_lib-iex-1) · **Low / high confidence** · *contradicts a per-file "ruled out"*
+[`CSCAN-cluster-shell-boot-pry-consent-bypass`](./CLUSTER_lib-iex-1.md#cscan-cluster-shell-boot-pry-consent-bypass) (CLUSTER_lib-iex-1) · **Low / high confidence** · *contradicts a per-file "ruled out"*
 
 The consent gate for a *foreign* pry (`Allow? [Yn]`) lives only in `server.ex take_over?/6`, and steady-state `handle_common` correctly routes non-self evaluators there. But the boot path `shell_loop/3` (`server.ex:74-83`) handles the identical `{:take_over,…}` message by responding `take_over?(_, _, 1, true)` at **line 79** — the unconditional-accept variant, with **no evaluator-identity check and no prompt**. The initiator is not privileged: `IEx.Pry.pry/2` is a *public* function any process may call; `IEx.Broker` fans the genuine (un-forged) message to every server including the booting `shell_loop`, which accepts with no prompt and thus wins the accept race. Effect: an unrelated process forces an interactive pry session onto the operator's console for a foreign evaluator's binding — without the consent the steady-state path requires.
 
@@ -40,16 +40,16 @@ This directly refutes the `server.ex` per-file report, which dismissed line 79 b
 ## 4. LOW — Terminal-escape injection from module-source bytes (three related file pairs)
 **Low · CWE-150/116** — same class (source-derived bytes reach a terminal write unstripped), surfaced independently in three places, including a **Contradicted** ledger row:
 
-- **`CSCAN-cluster-info-source-path-terminal-escape` (CLUSTER_lib-iex-0, high confidence).** `info.ex` returns the `"Source"`/`"Module bytecode"` fields as **raw `Path.relative_to_cwd/1` strings** — un-`inspect`-wrapped, unlike every sibling field — and `helpers.ex i/1` (`:580`) prints them raw via `IO.puts(IEx.color(:eval_info, …))`. `i(HostileModule)` on a module whose compiled-in `:source` path carries ANSI/C0 escapes renders them to the terminal. The `info.ex` per-file reviewer concluded "everything reaches output through `inspect`" and never inspected the `i/1` consumer — only reading producer + consumer together reveals it.
-- **`CSCAN-crossfile-source-derived-terminal-escape-passthrough` (CROSS_FILE, high confidence — Contradicted ledger row).** Prying into a module whose on-disk source contains escapes causes `pry.ex`'s raw `whereami` chardata to be printed unescaped by `server.ex:227`. `server.ex` dismissed this as "local trust"; `pry.ex` deferred the sink to `server.ex`; but `introspection.ex` *verified* those exact source bytes carry escapes to a terminal write. The two reviews classify the **same byte class oppositely** — the ledger flags this as **Contradicted** and recommends aligning to the finding.
-- **`CSCAN-introspection-terminal-escape-passthrough` (introspection.ex, low confidence · verified).** In-file `IO.puts` sinks in `print_source/2`, `b/1`, `t/1`, `print_typespec/1` emit untrusted-BEAM-derived source paths and typespec names with no C0/ESC stripping (`Path.relative_to_cwd` and the `Code.quoted_to_algebra`/`Inspect.Algebra.format` pipeline both preserve ESC/BEL).
+- **[`CSCAN-cluster-info-source-path-terminal-escape`](./CLUSTER_lib-iex-0.md#cscan-cluster-info-source-path-terminal-escape) (CLUSTER_lib-iex-0, high confidence).** `info.ex` returns the `"Source"`/`"Module bytecode"` fields as **raw `Path.relative_to_cwd/1` strings** — un-`inspect`-wrapped, unlike every sibling field — and `helpers.ex i/1` (`:580`) prints them raw via `IO.puts(IEx.color(:eval_info, …))`. `i(HostileModule)` on a module whose compiled-in `:source` path carries ANSI/C0 escapes renders them to the terminal. The `info.ex` per-file reviewer concluded "everything reaches output through `inspect`" and never inspected the `i/1` consumer — only reading producer + consumer together reveals it.
+- **[`CSCAN-crossfile-source-derived-terminal-escape-passthrough`](./CROSS_FILE.md#cscan-crossfile-source-derived-terminal-escape-passthrough) (CROSS_FILE, high confidence — Contradicted ledger row).** Prying into a module whose on-disk source contains escapes causes `pry.ex`'s raw `whereami` chardata to be printed unescaped by `server.ex:227`. `server.ex` dismissed this as "local trust"; `pry.ex` deferred the sink to `server.ex`; but `introspection.ex` *verified* those exact source bytes carry escapes to a terminal write. The two reviews classify the **same byte class oppositely** — the ledger flags this as **Contradicted** and recommends aligning to the finding.
+- **[`CSCAN-introspection-terminal-escape-passthrough`](./lib-iex-introspection.ex.md#cscan-introspection-terminal-escape-passthrough--upgraded-from-hedged-assumption-in-first-pass) (introspection.ex, low confidence · verified).** In-file `IO.puts` sinks in `print_source/2`, `b/1`, `t/1`, `print_typespec/1` emit untrusted-BEAM-derived source paths and typespec names with no C0/ESC stripping (`Path.relative_to_cwd` and the `Code.quoted_to_algebra`/`Inspect.Algebra.format` pipeline both preserve ESC/BEL).
 
 **Fix:** one IO-layer control-character scrubber (strip C0 except `\t`/`\n`, plus CSI/OSC) — but note the reports caution that scrubbing one path does *not* cover the others, so all sinks (`i/1`, pry-via-`server`, and the introspection printers) must be routed through it.
 
 ---
 
 ## 5. LOW — Quadratic typespec formatting DoS (`introspection.ex`)
-`CSCAN-introspection-typespec-algebra-quadratic-dos` · **Low / low confidence · verified (timings)**
+[`CSCAN-introspection-typespec-algebra-quadratic-dos`](./lib-iex-introspection.ex.md#cscan-introspection-typespec-algebra-quadratic-dos--upgraded-from-hedged-assumption-in-first-pass) · **Low / low confidence · verified (timings)**
 
 `format_typespec/3` runs `Code.quoted_to_algebra |> Inspect.Algebra.format`, which is **O(depth²)** (measured 9.6 → 34 → 131 → 564 ms as nesting depth doubles — each doubling ≈ 4× time). A forged BEAM carrying a pathologically nested spec/type makes `h(Mod.fun)`, `t(Mod)`, or `b(Mod)` burn seconds-to-minutes of CPU per call, hanging the session. Unlike the general `Inspect` case there is no `limit` cap on the document. This is the `Inspect.Algebra.format` quadratic tracked in `[[inspect-algebra-review]]`; file-local fix is to bound typespec nesting/size before formatting.
 
